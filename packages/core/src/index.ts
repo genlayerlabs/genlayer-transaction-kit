@@ -25,11 +25,33 @@ export type PolicyInput = {
   userValue?: bigint;
 };
 
+/** Allocation params measured offline (e.g. from the contract's test suite,
+ *  with headroom already applied). Values may be decimal strings so a JSON
+ *  fee profile can be passed through unchanged. */
+export type SuggestedFees = {
+  leaderTimeunitsAllocation?: bigint | number | string;
+  validatorTimeunitsAllocation?: bigint | number | string;
+  executionBudgetPerRound?: bigint | number | string;
+  totalMessageFees?: bigint | number | string;
+};
+
+export type FeeSuggestions = {
+  version?: number;
+  network?: string;
+  measuredAt?: string;
+  deploy?: SuggestedFees;
+  methods?: Record<string, SuggestedFees>;
+};
+
 export type PolicyQuote = {
   distribution: FeesDistribution;
   feeValue: bigint;
   userValue: bigint;
   total: bigint;
+  /** Where the allocation params came from: a developer fee profile
+   *  (measured in tests) or the network-wide defaults. Prices and caps are
+   *  always live reads either way. */
+  source: 'developer' | 'network-default';
   breakdown: {
     timeUnitFees: bigint;
     executionBudget: bigint;
@@ -84,9 +106,6 @@ export type Eip1193Provider = {
 };
 
 type Client = {
-  estimateTransactionFeesForWrite?: (
-    args: Record<string, unknown>,
-  ) => Promise<TransactionFeeEstimate>;
   estimateTransactionFees: (
     args?: Record<string, unknown>,
   ) => Promise<TransactionFeeEstimate>;
@@ -177,11 +196,13 @@ const buildBreakdown = (
 const toPolicyQuote = (
   estimate: TransactionFeeEstimate,
   userValue: bigint,
+  source: PolicyQuote['source'],
 ): PolicyQuote => ({
   distribution: estimate.distribution,
   feeValue: estimate.feeValue,
   userValue,
   total: estimate.feeValue + userValue,
+  source,
   breakdown: buildBreakdown(estimate),
   caps: {
     genPerTimeUnit: estimate.distribution.maxPriceGenPerTimeUnit,
@@ -191,8 +212,25 @@ const toPolicyQuote = (
   refundable: true,
 });
 
-const buildFeeOptions = (input: PolicyInput): Record<string, unknown> => ({
+const resolveSuggestion = (
+  suggestions: FeeSuggestions | undefined,
+  tx: SubmitInput | undefined,
+): SuggestedFees | undefined => {
+  if (!suggestions || !tx) return undefined;
+  return tx.kind === 'deploy'
+    ? suggestions.deploy
+    : suggestions.methods?.[tx.method];
+};
+
+// Merge order: preset (appeal posture) < developer suggestion (measured
+// allocations) < caller overrides. Prices/caps stay unset so the SDK fills
+// them from live reads with headroom — never from the profile.
+const buildFeeOptions = (
+  input: PolicyInput,
+  suggestion?: SuggestedFees,
+): Record<string, unknown> => ({
   ...PRESETS[input.preset ?? 'standard'],
+  ...(suggestion ?? {}),
   ...(input.overrides ?? {}),
 });
 
@@ -379,6 +417,10 @@ export function createTransactionKit(opts: {
   chain: GenLayerChain;
   provider: Eip1193Provider;
   account?: `0x${string}`;
+  /** Developer fee profile (allocations measured by the contract's test
+   *  suite). When a suggestion matches the transaction, it seeds the
+   *  estimate; the panel never simulates the call live. */
+  suggestions?: FeeSuggestions;
 }): TransactionKit {
   const captured = captureProviderTxHash(opts.provider);
   const client = createClient({
@@ -392,19 +434,15 @@ export function createTransactionKit(opts: {
     tx?: SubmitInput,
   ): Promise<PolicyQuote> => {
     const userValue = input.userValue ?? 0n;
-    const feeOptions = buildFeeOptions(input);
-    const sdkEstimate =
-      tx?.kind === 'write' && client.estimateTransactionFeesForWrite
-        ? await client.estimateTransactionFeesForWrite({
-            ...feeOptions,
-            address: tx.address,
-            functionName: tx.method,
-            args: toCalldataArgs(tx.args),
-            value: userValue,
-          })
-        : await client.estimateTransactionFees(feeOptions);
+    const suggestion = resolveSuggestion(opts.suggestions, tx);
+    const feeOptions = buildFeeOptions(input, suggestion);
+    const sdkEstimate = await client.estimateTransactionFees(feeOptions);
 
-    return toPolicyQuote(sdkEstimate, userValue);
+    return toPolicyQuote(
+      sdkEstimate,
+      userValue,
+      suggestion ? 'developer' : 'network-default',
+    );
   };
 
   const submit = async (

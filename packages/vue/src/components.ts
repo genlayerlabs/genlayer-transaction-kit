@@ -66,6 +66,15 @@ export const FeeReceipt = defineComponent({
           { class: 'gltk-refundable' },
           'Unused amounts are refunded when the transaction finalizes.',
         ),
+        h(
+          'p',
+          { class: 'gltk-source', 'data-source': props.quote.source },
+          `${
+            props.quote.source === 'developer'
+              ? 'Sized from the developer’s measured fee profile'
+              : 'Sized from network defaults'
+          } · live prices, never simulated`,
+        ),
       ]);
   },
 });

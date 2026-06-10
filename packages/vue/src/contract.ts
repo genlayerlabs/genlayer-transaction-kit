@@ -41,6 +41,7 @@ export type PolicyQuote = {
     messageFees: bigint;
   };
   caps: { genPerTimeUnit: bigint; storagePrice: bigint; receiptPrice: bigint };
+  source: 'developer' | 'network-default';
   refundable: true;
 };
 

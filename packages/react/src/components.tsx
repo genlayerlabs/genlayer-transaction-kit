@@ -63,6 +63,12 @@ export function FeeReceipt({ quote, busy }: { quote: PolicyQuote; busy?: boolean
         <Gen wei={quote.total} busy={busy} />
       </div>
       <p className="gltk-refundable">Unused amounts are refunded when the transaction finalizes.</p>
+      <p className="gltk-source" data-source={quote.source}>
+        {quote.source === 'developer'
+          ? 'Sized from the developer’s measured fee profile'
+          : 'Sized from network defaults'}
+        {' · '}live prices, never simulated
+      </p>
     </div>
   );
 }

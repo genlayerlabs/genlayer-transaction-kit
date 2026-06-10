@@ -117,9 +117,10 @@ describe('transaction kit core', () => {
     expect(quote.refundable).toBe(true);
   });
 
-  it('uses write-targeted estimation when a write transaction is supplied', async () => {
+  it('never simulates the call live — writes estimate from prices only', async () => {
     const client = {
-      estimateTransactionFeesForWrite: vi.fn(async () => ({
+      estimateTransactionFeesForWrite: vi.fn(),
+      estimateTransactionFees: vi.fn(async () => ({
         distribution: distribution({ appealRounds: 2n, rotations: [0n, 0n, 0n] }),
         feeValue: 600n,
         policy: {
@@ -130,7 +131,6 @@ describe('transaction kit core', () => {
           executionBudgetFloor: 0n,
         },
       })),
-      estimateTransactionFees: vi.fn(),
     };
     mocks.createClient.mockReturnValue(client);
 
@@ -141,7 +141,7 @@ describe('transaction kit core', () => {
       account: `0x${'1'.repeat(40)}`,
     });
 
-    await kit.estimate(
+    const quote = await kit.estimate(
       { preset: 'high', userValue: 9n },
       {
         kind: 'write',
@@ -151,15 +151,99 @@ describe('transaction kit core', () => {
       },
     );
 
-    expect(client.estimateTransactionFeesForWrite).toHaveBeenCalledWith({
+    expect(client.estimateTransactionFees).toHaveBeenCalledWith({
       appealRounds: 2n,
       rotations: [0n, 0n, 0n],
-      address: `0x${'2'.repeat(40)}`,
-      functionName: 'update_storage',
-      args: ['value'],
-      value: 9n,
     });
-    expect(client.estimateTransactionFees).not.toHaveBeenCalled();
+    expect(client.estimateTransactionFeesForWrite).not.toHaveBeenCalled();
+    expect(quote.source).toBe('network-default');
+  });
+
+  it('seeds the estimate from a matching developer suggestion', async () => {
+    const client = {
+      estimateTransactionFees: vi.fn(async () => ({
+        distribution: distribution({ appealRounds: 1n, rotations: [0n, 0n] }),
+        feeValue: 500n,
+        policy: {
+          enabled: true,
+          genPerTimeUnit: 3n,
+          storageUnitPrice: 4n,
+          receiptGasPrice: 5n,
+          executionBudgetFloor: 0n,
+        },
+      })),
+    };
+    mocks.createClient.mockReturnValue(client);
+
+    const { createTransactionKit } = await import('../src/index');
+    const kit = createTransactionKit({
+      chain,
+      provider: provider(),
+      account: `0x${'1'.repeat(40)}`,
+      suggestions: {
+        methods: {
+          update_storage: {
+            leaderTimeunitsAllocation: '1100',
+            validatorTimeunitsAllocation: '2200',
+            executionBudgetPerRound: '229600000000000',
+          },
+        },
+      },
+    });
+
+    const quote = await kit.estimate(
+      { preset: 'standard' },
+      {
+        kind: 'write',
+        address: `0x${'2'.repeat(40)}`,
+        method: 'update_storage',
+      },
+    );
+
+    expect(client.estimateTransactionFees).toHaveBeenCalledWith({
+      appealRounds: 1n,
+      rotations: [0n, 0n],
+      leaderTimeunitsAllocation: '1100',
+      validatorTimeunitsAllocation: '2200',
+      executionBudgetPerRound: '229600000000000',
+    });
+    expect(quote.source).toBe('developer');
+  });
+
+  it('ignores suggestions for methods without a profile entry', async () => {
+    const client = {
+      estimateTransactionFees: vi.fn(async () => ({
+        distribution: distribution({ appealRounds: 1n, rotations: [0n, 0n] }),
+        feeValue: 500n,
+        policy: {
+          enabled: true,
+          genPerTimeUnit: 3n,
+          storageUnitPrice: 4n,
+          receiptGasPrice: 5n,
+          executionBudgetFloor: 0n,
+        },
+      })),
+    };
+    mocks.createClient.mockReturnValue(client);
+
+    const { createTransactionKit } = await import('../src/index');
+    const kit = createTransactionKit({
+      chain,
+      provider: provider(),
+      account: `0x${'1'.repeat(40)}`,
+      suggestions: { methods: { other_method: { executionBudgetPerRound: '1' } } },
+    });
+
+    const quote = await kit.estimate(
+      { preset: 'standard' },
+      { kind: 'write', address: `0x${'2'.repeat(40)}`, method: 'update_storage' },
+    );
+
+    expect(client.estimateTransactionFees).toHaveBeenCalledWith({
+      appealRounds: 1n,
+      rotations: [0n, 0n],
+    });
+    expect(quote.source).toBe('network-default');
   });
 
   it('submits through the SDK provider path and returns the captured EVM hash', async () => {
@@ -201,6 +285,7 @@ describe('transaction kit core', () => {
         storagePrice: 4n,
         receiptPrice: 5n,
       },
+      source: 'network-default' as const,
       refundable: true,
     } as const;
 
@@ -322,6 +407,7 @@ describe('transaction kit core', () => {
         storagePrice: 4n,
         receiptPrice: 5n,
       },
+      source: 'network-default' as const,
       refundable: true,
     } as const;
     const tx: SubmitInput = {

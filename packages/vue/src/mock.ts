@@ -19,6 +19,8 @@ export function createMockKit(opts?: {
   failWith?: string;
   outcome?: { statusName: string; executionResultName: string };
   delays?: { estimate?: number; submit?: number; step?: number };
+  /** Pretend a developer fee profile matched the call. */
+  suggestions?: boolean;
 }): TransactionKit {
   const delays = { estimate: 350, submit: 500, step: 600, ...opts?.delays };
   return {
@@ -56,6 +58,7 @@ export function createMockKit(opts?: {
           storagePrice: 12n,
           receiptPrice: 300_000_000n,
         },
+        source: opts?.suggestions ? ('developer' as const) : ('network-default' as const),
         refundable: true,
       };
     },

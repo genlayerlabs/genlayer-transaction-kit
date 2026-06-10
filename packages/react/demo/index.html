@@ -33,7 +33,7 @@ const h = React.createElement;
 const tx = { kind: 'write', address: '0x' + '12'.repeat(20), method: 'place_bet' };
 
 createRoot(document.getElementById('review')).render(
-  h(GenLayerTransactionPanel, { kit: createMockKit({ delays: { estimate: 50 } }), tx,
+  h(GenLayerTransactionPanel, { kit: createMockKit({ delays: { estimate: 50 }, suggestions: true }), tx,
     network: 'dev-env · localhost', snapState: 'verified' }));
 
 createRoot(document.getElementById('done')).render(
