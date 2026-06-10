@@ -10,9 +10,9 @@ import { describeError, describeOutcome, formatGen, shortHash } from './format';
 import { useTransactionFlow } from './useTransactionFlow';
 
 const PRESET_COPY: Record<FeePreset, { label: string; sub: string }> = {
-  low: { label: 'Low', sub: 'no appeals' },
-  standard: { label: 'Standard', sub: '1 appeal round' },
-  high: { label: 'High', sub: '2 appeal rounds' },
+  low: { label: 'Low', sub: '1 appeal round' },
+  standard: { label: 'Standard', sub: '3 appeal rounds' },
+  high: { label: 'High', sub: '5 appeal rounds' },
 };
 
 function Gen({ wei, busy }: { wei: bigint; busy?: boolean }) {
@@ -231,6 +231,13 @@ export function Timeline({ status }: { status: TrackedStatus }) {
                   tx <code>{shortHash(status.genlayerTxId)}</code>
                 </span>
               ) : null}
+              {phase.key === 'submitted' && status.queuePosition !== undefined && current <= order.indexOf('pending') ? (
+                <span className="gltk-node-sub">
+                  {status.queuePosition === 0
+                    ? 'next in queue'
+                    : `${status.queuePosition} ahead in queue`}
+                </span>
+              ) : null}
               {phase.key === 'decided' && isOutcomeNode && outcome.tone === 'success' && status.contractAddress ? (
                 <span className="gltk-node-sub">
                   contract <code>{shortHash(status.contractAddress)}</code>
@@ -294,6 +301,33 @@ export function GenLayerTransactionPanel(props: TransactionPanelProps) {
         {reviewing ? (
           <>
             <PresetSelector value={flow.preset} onChange={flow.setPreset} disabled={busy} />
+            <details className="gltk-advanced">
+              <summary>Advanced</summary>
+              <div className="gltk-advanced-grid">
+                <label className="gltk-field">
+                  <span>Appeal rounds</span>
+                  <input
+                    type="number"
+                    min={1}
+                    placeholder="preset"
+                    disabled={busy}
+                    onChange={(event) => {
+                      const raw = event.target.value.trim();
+                      const parsed = raw === '' ? undefined : Number(raw);
+                      flow.setOverrides(
+                        parsed !== undefined && Number.isInteger(parsed) && parsed >= 1
+                          ? { ...flow.overrides, appealRounds: BigInt(parsed) }
+                          : (() => {
+                              const rest = { ...flow.overrides };
+                              delete rest.appealRounds;
+                              return Object.keys(rest).length ? rest : undefined;
+                            })(),
+                      );
+                    }}
+                  />
+                </label>
+              </div>
+            </details>
             {flow.quote ? (
               <>
                 <FeeReceipt quote={flow.quote} busy={busy} />

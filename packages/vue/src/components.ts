@@ -18,9 +18,9 @@ import { describeError, describeOutcome, formatGen, shortHash } from './format';
 import { useTransactionFlow } from './useTransactionFlow';
 
 const PRESET_COPY: Record<FeePreset, { label: string; sub: string }> = {
-  low: { label: 'Low', sub: 'no appeals' },
-  standard: { label: 'Standard', sub: '1 appeal round' },
-  high: { label: 'High', sub: '2 appeal rounds' },
+  low: { label: 'Low', sub: '1 appeal round' },
+  standard: { label: 'Standard', sub: '3 appeal rounds' },
+  high: { label: 'High', sub: '5 appeal rounds' },
 };
 
 function genValue(wei: bigint, busy?: boolean): VNodeChild {
@@ -250,6 +250,17 @@ export const Timeline = defineComponent({
                       h('code', shortHash(props.status.genlayerTxId)),
                     ])
                   : null,
+                phase.key === 'submitted' &&
+                props.status.queuePosition !== undefined &&
+                current <= order.indexOf('pending')
+                  ? h(
+                      'span',
+                      { class: 'gltk-node-sub' },
+                      props.status.queuePosition === 0
+                        ? 'next in queue'
+                        : `${props.status.queuePosition} ahead in queue`,
+                    )
+                  : null,
                 phase.key === 'decided' && isOutcomeNode && outcome.tone === 'success' && props.status.contractAddress
                   ? h('span', { class: 'gltk-node-sub' }, [
                       'contract ',
@@ -330,6 +341,36 @@ export const GenLayerTransactionPanel = defineComponent({
               flow.preset.value = preset;
             },
           }),
+        );
+        children.push(
+          h('details', { class: 'gltk-advanced' }, [
+            h('summary', 'Advanced'),
+            h('div', { class: 'gltk-advanced-grid' }, [
+              h('label', { class: 'gltk-field' }, [
+                h('span', 'Appeal rounds'),
+                h('input', {
+                  type: 'number',
+                  min: 1,
+                  placeholder: 'preset',
+                  disabled: busy,
+                  onChange: (event: Event) => {
+                    const raw = (event.target as HTMLInputElement).value.trim();
+                    const parsed = raw === '' ? undefined : Number(raw);
+                    if (parsed !== undefined && Number.isInteger(parsed) && parsed >= 1) {
+                      flow.overrides.value = {
+                        ...(flow.overrides.value ?? {}),
+                        appealRounds: BigInt(parsed),
+                      };
+                    } else {
+                      const rest = { ...(flow.overrides.value ?? {}) };
+                      delete rest.appealRounds;
+                      flow.overrides.value = Object.keys(rest).length ? rest : undefined;
+                    }
+                  },
+                }),
+              ]),
+            ]),
+          ]),
         );
         const quote = flow.quote.value;
         if (quote) {

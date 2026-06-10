@@ -102,8 +102,8 @@ describe('transaction kit core', () => {
     const quote = await kit.estimate({ userValue: 7n });
 
     expect(client.estimateTransactionFees).toHaveBeenCalledWith({
-      appealRounds: 1n,
-      rotations: [0n, 0n],
+      appealRounds: 3n,
+      rotations: [0n, 0n, 0n, 0n],
     });
     expect(quote.total).toBe(357n);
     expect(quote.breakdown.executionBudget).toBe(300n);
@@ -152,8 +152,8 @@ describe('transaction kit core', () => {
     );
 
     expect(client.estimateTransactionFees).toHaveBeenCalledWith({
-      appealRounds: 2n,
-      rotations: [0n, 0n, 0n],
+      appealRounds: 5n,
+      rotations: [0n, 0n, 0n, 0n, 0n, 0n],
     });
     expect(client.estimateTransactionFeesForWrite).not.toHaveBeenCalled();
     expect(quote.source).toBe('network-default');
@@ -201,8 +201,8 @@ describe('transaction kit core', () => {
     );
 
     expect(client.estimateTransactionFees).toHaveBeenCalledWith({
-      appealRounds: 1n,
-      rotations: [0n, 0n],
+      appealRounds: 3n,
+      rotations: [0n, 0n, 0n, 0n],
       leaderTimeunitsAllocation: '1100',
       validatorTimeunitsAllocation: '2200',
       executionBudgetPerRound: '229600000000000',
@@ -240,8 +240,8 @@ describe('transaction kit core', () => {
     );
 
     expect(client.estimateTransactionFees).toHaveBeenCalledWith({
-      appealRounds: 1n,
-      rotations: [0n, 0n],
+      appealRounds: 3n,
+      rotations: [0n, 0n, 0n, 0n],
     });
     expect(quote.source).toBe('network-default');
   });

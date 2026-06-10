@@ -33,6 +33,9 @@ export type SuggestedFees = {
   validatorTimeunitsAllocation?: bigint | number | string;
   executionBudgetPerRound?: bigint | number | string;
   totalMessageFees?: bigint | number | string;
+  /** Rotations budgeted per leader round. Empirical per application — set it
+   *  in the fee profile, not in user-facing UI. Defaults to 0. */
+  rotationsPerRound?: bigint | number | string;
 };
 
 export type FeeSuggestions = {
@@ -82,6 +85,9 @@ export type TrackedStatus = {
   genlayerTxId?: `0x${string}`;
   evmTxHash?: `0x${string}`;
   contractAddress?: `0x${string}`;
+  /** Position in the pending queue while the network hasn't activated the
+   *  transaction yet (0 = next up). Absent once processing starts. */
+  queuePosition?: number;
 };
 
 export type TransactionKit = {
@@ -147,20 +153,22 @@ const EXECUTION_RESULT_NUMBER_TO_NAME = {
   '4': 'NONDET_DISAGREE',
 } as const;
 
-const PRESETS: Record<FeePreset, FeesDistributionInput> = {
-  low: {
-    appealRounds: 0n,
-    rotations: [0n],
-  },
-  standard: {
-    appealRounds: 1n,
-    rotations: [0n, 0n],
-  },
-  high: {
-    appealRounds: 2n,
-    rotations: [0n, 0n, 0n],
-  },
+// Presets buy appeal posture only — how many appeal rounds the deposit can
+// fund. Rotations are not a user choice: they're empirical per application
+// and come from the developer fee profile (rotationsPerRound), defaulting
+// to 0. Callers can exceed the presets via overrides.appealRounds.
+const PRESET_APPEAL_ROUNDS: Record<FeePreset, bigint> = {
+  low: 1n,
+  standard: 3n,
+  high: 5n,
 };
+
+const buildRotations = (
+  appealRounds: bigint,
+  rotationsPerRound: bigint,
+): bigint[] =>
+  // one entry per leader round: the initial round plus each appeal round
+  Array.from({ length: Number(appealRounds) + 1 }, () => rotationsPerRound);
 
 const POLL_INTERVAL_MS = 2_000;
 const MAX_POLLS = 300;
@@ -228,11 +236,23 @@ const resolveSuggestion = (
 const buildFeeOptions = (
   input: PolicyInput,
   suggestion?: SuggestedFees,
-): Record<string, unknown> => ({
-  ...PRESETS[input.preset ?? 'standard'],
-  ...(suggestion ?? {}),
-  ...(input.overrides ?? {}),
-});
+): Record<string, unknown> => {
+  const { rotationsPerRound, ...allocationSuggestion } = suggestion ?? {};
+  const appealRounds = BigInt(
+    (input.overrides?.appealRounds ??
+      PRESET_APPEAL_ROUNDS[input.preset ?? 'standard']) as bigint,
+  );
+  const rotations =
+    input.overrides?.rotations ??
+    buildRotations(appealRounds, BigInt(rotationsPerRound ?? 0));
+
+  return {
+    ...allocationSuggestion,
+    ...(input.overrides ?? {}),
+    appealRounds,
+    rotations,
+  };
+};
 
 const captureProviderTxHash = (provider: Eip1193Provider) => {
   let lastEvmTxHash: `0x${string}` | undefined;
@@ -403,6 +423,14 @@ const mapTrackedStatus = (
   }
   if (typeof contractAddress === 'string' && contractAddress.startsWith('0x')) {
     status.contractAddress = contractAddress as `0x${string}`;
+  }
+  const queuePosition = (transaction as { queuePosition?: bigint | string })
+    .queuePosition;
+  if (
+    queuePosition !== undefined &&
+    (phase === 'pending' || phase === 'submitted')
+  ) {
+    status.queuePosition = Number(queuePosition);
   }
 
   return status;

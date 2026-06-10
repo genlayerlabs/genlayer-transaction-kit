@@ -64,6 +64,8 @@ export type TrackedStatus = {
   genlayerTxId?: Hex;
   evmTxHash?: Hex;
   contractAddress?: Hex;
+  /** Pending-queue position (0 = next up); absent once processing starts. */
+  queuePosition?: number;
 };
 
 export type TransactionKit = {

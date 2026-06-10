@@ -7,7 +7,7 @@ import type {
   TransactionKit,
 } from './contract';
 
-const PRESET_APPEALS: Record<string, bigint> = { low: 0n, standard: 1n, high: 2n };
+const PRESET_APPEALS: Record<string, bigint> = { low: 1n, standard: 3n, high: 5n };
 const GEN_PER_TIME_UNIT = 10n ** 15n;
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -26,7 +26,11 @@ export function createMockKit(opts?: {
   return {
     async estimate(input: PolicyInput): Promise<PolicyQuote> {
       await sleep(delays.estimate);
-      const appeals = PRESET_APPEALS[input.preset ?? 'standard'] ?? 1n;
+      const appeals = BigInt(
+        (input.overrides?.appealRounds as bigint | undefined) ??
+          PRESET_APPEALS[input.preset ?? 'standard'] ??
+          3n,
+      );
       const rotations = Array.from({ length: Number(appeals) + 1 }, () => 0n);
       const leaderRounds = BigInt(rotations.length) + appeals;
       const timeUnits = (100n + 5n * 200n) * (appeals * 2n + 1n);
@@ -78,7 +82,8 @@ export function createMockKit(opts?: {
         executionResultName: 'FINISHED_WITH_RETURN',
       };
       const steps: TrackedStatus[] = [
-        { phase: 'pending', genlayerTxId },
+        { phase: 'pending', genlayerTxId, queuePosition: 2 },
+        { phase: 'pending', genlayerTxId, queuePosition: 0 },
         { phase: 'processing', genlayerTxId },
         {
           phase: 'decided',
