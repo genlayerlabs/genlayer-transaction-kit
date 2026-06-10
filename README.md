@@ -57,3 +57,26 @@ const kit = createTransactionKit({ chain: testnetAsimov, provider: window.ethere
 
 The adapters never import the core at runtime — the kit instance is injected and typed
 structurally, so the packages version independently.
+
+## Developer fee suggestions (no live simulation)
+
+The panel never simulates the call to size a quote — that's too expensive to run per
+estimate. Instead, allocations come from a **developer fee profile** measured offline by
+the contract's test suite (`gltest --fee-profile fee-profile.json`), with prices and
+caps always read live:
+
+```ts
+import profile from './fee-profile.json';
+
+const kit = createTransactionKit({
+  chain,
+  provider: window.ethereum,
+  suggestions: profile, // { deploy?, methods: { place_bet: {...} } }
+});
+```
+
+Merge order per estimate: preset (appeal posture) < suggestion (measured allocations)
+< caller overrides. `PolicyQuote.source` reports `'developer'` or `'network-default'`,
+and the receipt shows the provenance. Profile values are decimal strings, so the JSON
+artifact passes through unchanged; methods without an entry fall back to network
+defaults.
