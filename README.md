@@ -58,6 +58,30 @@ const kit = createTransactionKit({ chain: testnetAsimov, provider: window.ethere
 The adapters never import the core at runtime — the kit instance is injected and typed
 structurally, so the packages version independently.
 
+## Wallet compatibility (MetaMask, Privy, WalletConnect, …)
+
+The kit depends only on an injected [EIP-1193](https://eips.ethereum.org/EIPS/eip-1193)
+provider — it never touches `window.ethereum` directly, so any wallet that exposes the
+standard `request()` interface works, including embedded wallets. With Privy:
+
+```ts
+import { usePrivy, useWallets } from '@privy-io/react-auth';
+
+const { wallets } = useWallets();
+const wallet = wallets[0];
+const provider = await wallet.getEthereumProvider(); // EIP-1193
+
+const kit = createTransactionKit({
+  chain,
+  provider,
+  account: wallet.address as `0x${string}`,
+});
+```
+
+The provider must be on the GenLayer chain (use Privy's `wallet.switchChain(chainId)`
+first). The GenLayer Snap verification badge is a MetaMask-only optional layer — with
+any other wallet the panel simply shows the policy fingerprint instead.
+
 ## Developer fee suggestions (no live simulation)
 
 The panel never simulates the call to size a quote — that's too expensive to run per
