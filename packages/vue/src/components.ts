@@ -150,10 +150,15 @@ export const HoldToSign = defineComponent({
   },
   emits: ['confirm'],
   setup(props, { emit }) {
+    // Touch holds to confirm (no accidental taps); mouse and keyboard confirm
+    // directly — the review panel is the deliberateness step, and a
+    // long-press is alien on desktop.
     const holding = ref(false);
     let timer: ReturnType<typeof setTimeout> | undefined;
-    const start = () => {
-      if (props.disabled) return;
+    let touchHandled = false;
+    const start = (event: PointerEvent) => {
+      if (props.disabled || event.pointerType === 'mouse') return;
+      touchHandled = true;
       holding.value = true;
       timer = setTimeout(() => {
         holding.value = false;
@@ -176,11 +181,15 @@ export const HoldToSign = defineComponent({
           onPointerdown: start,
           onPointerup: cancel,
           onPointerleave: cancel,
-          onKeydown: (event: KeyboardEvent) => {
-            if (event.key === 'Enter' || event.key === ' ') {
-              event.preventDefault();
-              emit('confirm');
+          onClick: () => {
+            // Synthetic click after a touch press is swallowed; touch
+            // confirms only by completing the hold.
+            if (props.disabled) return;
+            if (touchHandled) {
+              touchHandled = false;
+              return;
             }
+            emit('confirm');
           },
         },
         [

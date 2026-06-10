@@ -135,7 +135,9 @@ export function VerifyBadge(props: {
   );
 }
 
-/** Press-and-hold approval — a deliberate action, not a misclick. */
+/** Approval button. Touch holds to confirm (no accidental taps); mouse and
+ *  keyboard confirm directly — the review panel is the deliberateness step,
+ *  and a long-press is alien on desktop. */
 export function HoldToSign(props: {
   onConfirm: () => void;
   disabled?: boolean;
@@ -145,15 +147,20 @@ export function HoldToSign(props: {
   const holdMs = props.holdMs ?? 900;
   const [holding, setHolding] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout>>();
+  const touchHandled = useRef(false);
 
-  const start = useCallback(() => {
-    if (props.disabled) return;
-    setHolding(true);
-    timer.current = setTimeout(() => {
-      setHolding(false);
-      props.onConfirm();
-    }, holdMs);
-  }, [props, holdMs]);
+  const start = useCallback(
+    (event: React.PointerEvent) => {
+      if (props.disabled || event.pointerType === 'mouse') return;
+      touchHandled.current = true;
+      setHolding(true);
+      timer.current = setTimeout(() => {
+        setHolding(false);
+        props.onConfirm();
+      }, holdMs);
+    },
+    [props, holdMs],
+  );
 
   const cancel = useCallback(() => {
     setHolding(false);
@@ -170,11 +177,16 @@ export function HoldToSign(props: {
       onPointerDown={start}
       onPointerUp={cancel}
       onPointerLeave={cancel}
-      onKeyDown={(event) => {
-        if (event.key === 'Enter' || event.key === ' ') {
-          event.preventDefault();
-          props.onConfirm(); // keyboard users confirm directly
+      onClick={() => {
+        // Mouse clicks, keyboard activation and AT-dispatched clicks confirm
+        // directly; the synthetic click after a touch press is swallowed —
+        // touch confirms only by completing the hold.
+        if (props.disabled) return;
+        if (touchHandled.current) {
+          touchHandled.current = false;
+          return;
         }
+        props.onConfirm();
       }}
     >
       <span className="gltk-hold-fill" aria-hidden />

@@ -474,6 +474,14 @@
   margin-top: 2px;
 }
 
+/* Hold-to-confirm only applies to touch; on fine pointers a click signs,
+   so the hint would be wrong. */
+@media (hover: hover) and (pointer: fine) {
+  .gltk-hold-hint {
+    display: none;
+  }
+}
+
 /* ── Status timeline ─────────────────────────────────────── */
 
 .gltk-timeline {
