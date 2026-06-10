@@ -417,6 +417,17 @@
   color: var(--gltk-ink-faint);
 }
 
+
+.gltk-queue {
+  margin: 10px 20px 0;
+  font-size: 11px;
+  color: var(--gltk-warn);
+}
+
+.gltk-queue[data-clear='true'] {
+  color: var(--gltk-ink-faint);
+}
+
 /* ── Hold-to-sign (signature pill) ───────────────────────── */
 
 .gltk-actions { padding: 16px 20px 18px; }

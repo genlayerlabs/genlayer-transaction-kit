@@ -21,6 +21,8 @@ export function createMockKit(opts?: {
   delays?: { estimate?: number; submit?: number; step?: number };
   /** Pretend a developer fee profile matched the call. */
   suggestions?: boolean;
+  /** Pending-queue depth shown in the review step. */
+  queueAhead?: number;
 }): TransactionKit {
   const delays = { estimate: 350, submit: 500, step: 600, ...opts?.delays };
   return {
@@ -63,6 +65,7 @@ export function createMockKit(opts?: {
           receiptPrice: 300_000_000n,
         },
         source: opts?.suggestions ? ('developer' as const) : ('network-default' as const),
+        ...(opts?.queueAhead !== undefined ? { queue: { pendingAhead: opts.queueAhead } } : {}),
         refundable: true,
       };
     },

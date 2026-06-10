@@ -1,4 +1,4 @@
-import { AbiCoder, keccak256 } from 'ethers';
+import { AbiCoder, id, keccak256 } from 'ethers';
 import {
   createClient,
   isSuccessful as sdkIsSuccessful,
@@ -55,6 +55,10 @@ export type PolicyQuote = {
    *  (measured in tests) or the network-wide defaults. Prices and caps are
    *  always live reads either way. */
   source: 'developer' | 'network-default';
+  /** Pending-queue depth for the target account at estimate time, read from
+   *  the consensus Queues contract via the RPC passthrough. Absent when the
+   *  chain config lacks the consensus contract or the read fails. */
+  queue?: { pendingAhead: number };
   breakdown: {
     timeUnitFees: bigint;
     executionBudget: bigint;
@@ -252,6 +256,51 @@ const buildFeeOptions = (
     appealRounds,
     rotations,
   };
+};
+
+const QUEUES_SELECTOR = id('queues()').slice(0, 10);
+const PENDING_COUNT_SELECTOR = id('getPendingTxCount(address)').slice(0, 10);
+
+const ethCall = async (
+  provider: Eip1193Provider,
+  to: string,
+  data: string,
+): Promise<string> =>
+  (await provider.request({
+    method: 'eth_call',
+    params: [{ to, data }, 'latest'],
+  })) as string;
+
+/** Pending-queue depth for a recipient, via the consensus contracts over the
+ *  RPC passthrough: ConsensusMain.queues() -> Queues.getPendingTxCount().
+ *  Returns undefined when the chain config lacks the consensus contract or
+ *  any read fails — queue depth is advisory, never blocks the estimate. */
+const readPendingAhead = async (
+  provider: Eip1193Provider,
+  chain: GenLayerChain,
+  recipient: string,
+  cache: { queuesAddress?: string },
+): Promise<number | undefined> => {
+  try {
+    const consensusAddress = (
+      chain as { consensusMainContract?: { address?: string } }
+    ).consensusMainContract?.address;
+    if (!consensusAddress) return undefined;
+
+    if (!cache.queuesAddress) {
+      const raw = await ethCall(provider, consensusAddress, QUEUES_SELECTOR);
+      const [queuesAddress] = abiCoder.decode(['address'], raw);
+      cache.queuesAddress = queuesAddress as string;
+    }
+    const data =
+      PENDING_COUNT_SELECTOR +
+      abiCoder.encode(['address'], [recipient]).slice(2);
+    const raw = await ethCall(provider, cache.queuesAddress, data);
+    const [count] = abiCoder.decode(['uint256'], raw);
+    return Number(count);
+  } catch {
+    return undefined;
+  }
 };
 
 const captureProviderTxHash = (provider: Eip1193Provider) => {
@@ -457,6 +506,8 @@ export function createTransactionKit(opts: {
     ...(opts.account ? { account: opts.account } : {}),
   } as never) as unknown as Client;
 
+  const queueCache: { queuesAddress?: string } = {};
+
   const estimate = async (
     input: PolicyInput,
     tx?: SubmitInput,
@@ -464,13 +515,23 @@ export function createTransactionKit(opts: {
     const userValue = input.userValue ?? 0n;
     const suggestion = resolveSuggestion(opts.suggestions, tx);
     const feeOptions = buildFeeOptions(input, suggestion);
-    const sdkEstimate = await client.estimateTransactionFees(feeOptions);
+    const [sdkEstimate, pendingAhead] = await Promise.all([
+      client.estimateTransactionFees(feeOptions),
+      // a deploy targets a fresh address, so its queue is necessarily empty
+      tx?.kind === 'write'
+        ? readPendingAhead(opts.provider, opts.chain, tx.address, queueCache)
+        : Promise.resolve(undefined),
+    ]);
 
-    return toPolicyQuote(
+    const quote = toPolicyQuote(
       sdkEstimate,
       userValue,
       suggestion ? 'developer' : 'network-default',
     );
+    if (pendingAhead !== undefined) {
+      quote.queue = { pendingAhead };
+    }
+    return quote;
   };
 
   const submit = async (

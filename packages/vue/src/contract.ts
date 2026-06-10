@@ -42,6 +42,8 @@ export type PolicyQuote = {
   };
   caps: { genPerTimeUnit: bigint; storagePrice: bigint; receiptPrice: bigint };
   source: 'developer' | 'network-default';
+  /** Pending-queue depth for the target account at estimate time. */
+  queue?: { pendingAhead: number };
   refundable: true;
 };
 

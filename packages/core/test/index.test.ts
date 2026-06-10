@@ -210,6 +210,61 @@ describe('transaction kit core', () => {
     expect(quote.source).toBe('developer');
   });
 
+  it('reads pending-queue depth for writes via the consensus passthrough', async () => {
+    const client = {
+      estimateTransactionFees: vi.fn(async () => ({
+        distribution: distribution(),
+        feeValue: 500n,
+        policy: {
+          enabled: true,
+          genPerTimeUnit: 3n,
+          storageUnitPrice: 4n,
+          receiptGasPrice: 5n,
+          executionBudgetFloor: 0n,
+        },
+      })),
+    };
+    mocks.createClient.mockReturnValue(client);
+
+    const queuesAddress = `0x${'9'.repeat(40)}`;
+    const provider = {
+      request: vi.fn(async ({ method, params }: { method: string; params?: unknown[] }) => {
+        if (method !== 'eth_call') return undefined;
+        const call = (params as [{ to: string; data: string }])[0];
+        if (call.data.startsWith('0xe605bca4') || call.data.length === 10) {
+          // ConsensusMain.queues()
+          return `0x${'0'.repeat(24)}${queuesAddress.slice(2)}`;
+        }
+        // Queues.getPendingTxCount(address)
+        return `0x${'0'.repeat(63)}4`;
+      }),
+    };
+
+    const { createTransactionKit } = await import('../src/index');
+    const chainWithConsensus = {
+      ...(chain as object),
+      consensusMainContract: { address: `0x${'8'.repeat(40)}` },
+    } as never;
+    const kit = createTransactionKit({
+      chain: chainWithConsensus,
+      provider,
+      account: `0x${'1'.repeat(40)}`,
+    });
+
+    const quote = await kit.estimate(
+      { preset: 'standard' },
+      { kind: 'write', address: `0x${'2'.repeat(40)}`, method: 'place_bet' },
+    );
+
+    expect(quote.queue).toEqual({ pendingAhead: 4 });
+
+    const deployQuote = await kit.estimate(
+      { preset: 'standard' },
+      { kind: 'deploy', code: 'class C: pass' },
+    );
+    expect(deployQuote.queue).toBeUndefined();
+  });
+
   it('ignores suggestions for methods without a profile entry', async () => {
     const client = {
       estimateTransactionFees: vi.fn(async () => ({

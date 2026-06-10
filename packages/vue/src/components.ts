@@ -376,6 +376,18 @@ export const GenLayerTransactionPanel = defineComponent({
         if (quote) {
           children.push(h(FeeReceipt, { quote, busy }));
           children.push(h(CapsShield, { quote }));
+          if (quote.queue) {
+            const ahead = quote.queue.pendingAhead;
+            children.push(
+              h(
+                'p',
+                { class: 'gltk-queue', 'data-clear': ahead === 0 ? 'true' : undefined },
+                ahead === 0
+                  ? 'Queue is clear — starts immediately'
+                  : `${ahead} transaction${ahead === 1 ? '' : 's'} queued ahead for this contract`,
+              ),
+            );
+          }
           const verification = flow.verification.value;
           if (verification) {
             children.push(

@@ -336,6 +336,13 @@ export function GenLayerTransactionPanel(props: TransactionPanelProps) {
                   feeConfigHash={flow.verification?.feeConfigHash}
                   snapState={props.snapState}
                 />
+                {flow.quote.queue ? (
+                  <p className="gltk-queue" data-clear={flow.quote.queue.pendingAhead === 0 ? 'true' : undefined}>
+                    {flow.quote.queue.pendingAhead === 0
+                      ? 'Queue is clear — starts immediately'
+                      : `${flow.quote.queue.pendingAhead} transaction${flow.quote.queue.pendingAhead === 1 ? '' : 's'} queued ahead for this contract`}
+                  </p>
+                ) : null}
               </>
             ) : null}
             <div className="gltk-actions">
