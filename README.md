@@ -19,6 +19,24 @@ Stage-1 scope: **direct submission only**. EIP-712 intents, the gateway contract
 ERC-7730 clear-signing metadata are stage 2 (see the wallet architecture doc in
 `genlayer-wallet`).
 
+## Installing before the npm release
+
+npm `github:` dependencies can't reach monorepo subpackages, so each package is also
+published as a packed orphan branch (`npm pack` output, dist included):
+
+```jsonc
+{
+  "dependencies": {
+    "@genlayer/transaction-kit": "github:genlayerlabs/genlayer-transaction-kit#pkg/core",
+    "@genlayer/transaction-kit-react": "github:genlayerlabs/genlayer-transaction-kit#pkg/react",
+    "@genlayer/transaction-kit-vue": "github:genlayerlabs/genlayer-transaction-kit#pkg/vue"
+  }
+}
+```
+
+These branches are refreshed manually on release-worthy changes and go away once the
+packages are on npm.
+
 ## Quick start (React)
 
 ```tsx
