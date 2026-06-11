@@ -298,7 +298,22 @@ export function GenLayerTransactionPanel(props: TransactionPanelProps) {
           <span className="gltk-target-what">{target.what}</span>
         </div>
 
-        {reviewing ? (
+        {reviewing && flow.quote?.gasless ? (
+          <>
+            <div className="gltk-gasless">
+              <p className="gltk-gasless-title">No fees on this network</p>
+              <p className="gltk-gasless-detail">
+                Fee accounting is disabled here — no deposit is taken and nothing is charged.
+              </p>
+            </div>
+            {flow.quote.userValue > 0n ? <FeeReceipt quote={flow.quote} busy={busy} /> : null}
+            <div className="gltk-actions">
+              <HoldToSign onConfirm={() => void flow.approve()} disabled={busy} />
+            </div>
+          </>
+        ) : null}
+
+        {reviewing && !flow.quote?.gasless ? (
           <>
             <PresetSelector value={flow.preset} onChange={flow.setPreset} disabled={busy} />
             <details className="gltk-advanced">

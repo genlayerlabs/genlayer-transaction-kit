@@ -44,6 +44,8 @@ export type PolicyQuote = {
   source: 'developer' | 'network-default';
   /** Pending-queue depth for the target account at estimate time. */
   queue?: { pendingAhead: number };
+  /** True when the network charges no fees (gasless Studio). */
+  gasless?: boolean;
   refundable: true;
 };
 

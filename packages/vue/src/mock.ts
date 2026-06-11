@@ -23,6 +23,8 @@ export function createMockKit(opts?: {
   suggestions?: boolean;
   /** Pending-queue depth shown in the review step. */
   queueAhead?: number;
+  /** Simulate a gasless network (no deposit, no fee receipt). */
+  gasless?: boolean;
 }): TransactionKit {
   const delays = { estimate: 350, submit: 500, step: 600, ...opts?.delays };
   return {
@@ -66,6 +68,7 @@ export function createMockKit(opts?: {
         },
         source: opts?.suggestions ? ('developer' as const) : ('network-default' as const),
         ...(opts?.queueAhead !== undefined ? { queue: { pendingAhead: opts.queueAhead } } : {}),
+        ...(opts?.gasless ? { gasless: true } : {}),
         refundable: true,
       };
     },

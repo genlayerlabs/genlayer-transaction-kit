@@ -428,6 +428,29 @@
   color: var(--gltk-ink-faint);
 }
 
+
+.gltk-gasless {
+  margin: 14px 20px 0;
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, var(--gltk-success) 40%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--gltk-success) 6%, var(--gltk-bg));
+}
+
+.gltk-gasless-title {
+  font-family: var(--gltk-font-display);
+  font-size: 13px;
+  font-weight: 700;
+  margin: 0 0 3px;
+  color: var(--gltk-success);
+}
+
+.gltk-gasless-detail {
+  margin: 0;
+  font-size: 12px;
+  color: var(--gltk-ink-dim);
+}
+
 /* ── Hold-to-sign (signature pill) ───────────────────────── */
 
 .gltk-actions { padding: 16px 20px 18px; }

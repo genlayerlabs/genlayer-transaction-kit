@@ -210,6 +210,52 @@ describe('transaction kit core', () => {
     expect(quote.source).toBe('developer');
   });
 
+  it('marks gasless networks and submits without fee params', async () => {
+    const client = {
+      estimateTransactionFees: vi.fn(async () => ({
+        distribution: distribution({
+          leaderTimeunitsAllocation: 0n,
+          validatorTimeunitsAllocation: 0n,
+          executionBudgetPerRound: 0n,
+          totalMessageFees: 0n,
+          maxPriceGenPerTimeUnit: 0n,
+          storageFeeMaxGasPrice: 0n,
+          receiptFeeMaxGasPrice: 0n,
+        }),
+        feeValue: 0n,
+        policy: {
+          enabled: false,
+          genPerTimeUnit: 0n,
+          storageUnitPrice: 0n,
+          receiptGasPrice: 0n,
+          executionBudgetFloor: 0n,
+        },
+      })),
+      writeContract: vi.fn(async () => `0x${'d'.repeat(64)}`),
+    };
+    mocks.createClient.mockReturnValue(client);
+
+    const { createTransactionKit } = await import('../src/index');
+    const kit = createTransactionKit({
+      chain,
+      provider: provider(),
+      account: `0x${'1'.repeat(40)}`,
+    });
+
+    const tx: SubmitInput = {
+      kind: 'write',
+      address: `0x${'2'.repeat(40)}`,
+      method: 'update_storage',
+    };
+    const quote = await kit.estimate({ preset: 'standard' }, tx);
+    expect(quote.gasless).toBe(true);
+    expect(quote.total).toBe(0n);
+
+    await kit.submit(quote, tx);
+    const callArgs = (client.writeContract.mock.calls as unknown[][])[0]?.[0] as Record<string, unknown>;
+    expect(callArgs.fees).toBeUndefined();
+  });
+
   it('reads pending-queue depth for writes via the consensus passthrough', async () => {
     const client = {
       estimateTransactionFees: vi.fn(async () => ({

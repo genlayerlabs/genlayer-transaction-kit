@@ -332,7 +332,30 @@ export const GenLayerTransactionPanel = defineComponent({
         ]),
       ];
 
-      if (reviewing) {
+      if (reviewing && flow.quote.value?.gasless) {
+        const quote = flow.quote.value;
+        children.push(
+          h('div', { class: 'gltk-gasless' }, [
+            h('p', { class: 'gltk-gasless-title' }, 'No fees on this network'),
+            h(
+              'p',
+              { class: 'gltk-gasless-detail' },
+              'Fee accounting is disabled here — no deposit is taken and nothing is charged.',
+            ),
+          ]),
+        );
+        if (quote.userValue > 0n) {
+          children.push(h(FeeReceipt, { quote, busy }));
+        }
+        children.push(
+          h('div', { class: 'gltk-actions' }, [
+            h(HoldToSign, {
+              disabled: busy,
+              onConfirm: () => void flow.approve(),
+            }),
+          ]),
+        );
+      } else if (reviewing) {
         children.push(
           h(PresetSelector, {
             modelValue: flow.preset.value,

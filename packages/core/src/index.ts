@@ -59,6 +59,9 @@ export type PolicyQuote = {
    *  the consensus Queues contract via the RPC passthrough. Absent when the
    *  chain config lacks the consensus contract or the read fails. */
   queue?: { pendingAhead: number };
+  /** True when the network's fee accounting is disabled (all prices zero —
+   *  e.g. a gasless Studio). No deposit is taken and submit omits fees. */
+  gasless?: boolean;
   breakdown: {
     timeUnitFees: bigint;
     executionBudget: bigint;
@@ -210,6 +213,7 @@ const toPolicyQuote = (
   userValue: bigint,
   source: PolicyQuote['source'],
 ): PolicyQuote => ({
+  ...(estimate.policy?.enabled === false ? { gasless: true } : {}),
   distribution: estimate.distribution,
   feeValue: estimate.feeValue,
   userValue,
@@ -538,12 +542,12 @@ export function createTransactionKit(opts: {
     quote: PolicyQuote,
     tx: SubmitInput,
   ): Promise<{ genlayerTxId: `0x${string}`; evmTxHash?: `0x${string}` }> => {
-    const fees = {
-      distribution: quote.distribution,
-      feeValue: quote.feeValue,
-    };
     const common = {
-      fees,
+      // a gasless network takes no deposit — sending fee params would at best
+      // be ignored and at worst rejected, so omit them entirely
+      ...(quote.gasless
+        ? {}
+        : { fees: { distribution: quote.distribution, feeValue: quote.feeValue } }),
       value: quote.userValue,
     };
     const genlayerTxId =
