@@ -25,9 +25,15 @@ export function createMockKit(opts?: {
   queueAhead?: number;
   /** Simulate a gasless network (no deposit, no fee receipt). */
   gasless?: boolean;
+  verificationStatus?: PolicyQuote['verification']['status'];
+  allowUnverified?: boolean;
+  failCancelWith?: string;
+  failTopUpWith?: string;
 }): TransactionKit {
   const delays = { estimate: 350, submit: 500, step: 600, ...opts?.delays };
   return {
+    ...(opts?.allowUnverified ? { allowUnverified: true } : {}),
+
     async estimate(input: PolicyInput): Promise<PolicyQuote> {
       await sleep(delays.estimate);
       const appeals = BigInt(
@@ -44,6 +50,12 @@ export function createMockKit(opts?: {
       const messageFees = input.overrides?.totalMessageFees ?? 0n;
       const userValue = input.userValue ?? 0n;
       const feeValue = timeUnitFees + executionBudget + messageFees;
+      const verificationStatus = opts?.verificationStatus ?? 'verified';
+      const expectedHash = (`0x${'11'.repeat(32)}`) as Hex;
+      const actualHash =
+        verificationStatus === 'mismatch'
+          ? ((`0x${'22'.repeat(32)}`) as Hex)
+          : expectedHash;
       return {
         distribution: {
           leaderTimeunitsAllocation: 100n,
@@ -69,6 +81,10 @@ export function createMockKit(opts?: {
         source: opts?.suggestions ? ('developer' as const) : ('network-default' as const),
         ...(opts?.queueAhead !== undefined ? { queue: { pendingAhead: opts.queueAhead } } : {}),
         ...(opts?.gasless ? { gasless: true } : {}),
+        verification:
+          verificationStatus === 'unavailable'
+            ? { status: 'unavailable', expectedHash }
+            : { status: verificationStatus, expectedHash, actualHash },
         refundable: true,
       };
     },
@@ -111,6 +127,21 @@ export function createMockKit(opts?: {
       return last;
     },
 
+    async cancel() {
+      await sleep(delays.submit);
+      if (opts?.failCancelWith) throw new Error(opts.failCancelWith);
+      return {
+        transaction_hash: ('0x' + 'ab'.repeat(32)) as Hex,
+        status: 'CANCELED',
+      };
+    },
+
+    async topUp() {
+      await sleep(delays.submit);
+      if (opts?.failTopUpWith) throw new Error(opts.failTopUpWith);
+      return ('0x' + 'ef'.repeat(32)) as Hex;
+    },
+
     verification(quote: PolicyQuote, tx: SubmitInput) {
       const fingerprint = [
         quote.feeValue,
@@ -121,7 +152,9 @@ export function createMockKit(opts?: {
       let hash = 0n;
       for (const char of fingerprint) hash = (hash * 31n + BigInt(char.charCodeAt(0))) % 2n ** 160n;
       return {
-        feeConfigHash: (`0x${hash.toString(16).padStart(40, '0')}`) as Hex,
+        feeConfigHash:
+          quote.verification?.expectedHash ??
+          ((`0x${hash.toString(16).padStart(64, '0')}`) as Hex),
         summary: { total: quote.total.toString(), kind: tx.kind },
       };
     },

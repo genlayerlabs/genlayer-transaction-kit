@@ -123,14 +123,54 @@ export function CapsShield({ quote }: { quote: PolicyQuote }) {
 
 export function VerifyBadge(props: {
   feeConfigHash?: string;
+  status?: PolicyQuote['verification']['status'];
   snapState?: 'verified' | 'unavailable';
 }) {
   if (!props.feeConfigHash) return null;
   const verified = props.snapState === 'verified';
+  const label = verified
+    ? '✓ Verified by GenLayer Snap'
+    : props.status === 'mismatch'
+      ? 'Policy mismatch'
+      : props.status === 'unavailable'
+        ? 'Policy fingerprint (unchecked)'
+        : 'Policy fingerprint';
   return (
-    <div className="gltk-verify" data-state={verified ? 'verified' : undefined}>
-      <span>{verified ? '✓ Verified by GenLayer Snap' : 'Policy fingerprint'}</span>
+    <div
+      className="gltk-verify"
+      data-state={verified ? 'verified' : props.status}
+    >
+      <span>{label}</span>
       <code>{shortHash(props.feeConfigHash, 10, 6)}</code>
+    </div>
+  );
+}
+
+function VerificationNotice(props: { quote: PolicyQuote; blocked?: boolean }) {
+  const { verification } = props.quote;
+  if (verification.status === 'verified') return null;
+  if (verification.status === 'mismatch') {
+    return (
+      <div className="gltk-verification" data-tone={props.blocked ? 'error' : 'warn'}>
+        <p className="gltk-verification-title">Fee policy changed</p>
+        <p className="gltk-verification-detail">
+          The quoted fee configuration no longer matches the chain. Re-estimate before signing.
+        </p>
+        {verification.expectedHash && verification.actualHash ? (
+          <p className="gltk-verification-hashes">
+            expected <code>{shortHash(verification.expectedHash)}</code>
+            {' · '}actual <code>{shortHash(verification.actualHash)}</code>
+          </p>
+        ) : null}
+      </div>
+    );
+  }
+  return (
+    <div className="gltk-verification" data-tone="warn">
+      <p className="gltk-verification-title">Fee policy check unavailable</p>
+      <p className="gltk-verification-detail">
+        The quote can still be signed, but the live fee-policy check did not complete.
+      </p>
     </div>
   );
 }
@@ -283,7 +323,8 @@ export function GenLayerTransactionPanel(props: TransactionPanelProps) {
   }
 
   const busy = state.step === 'estimating';
-  const reviewing = state.step === 'review' || busy;
+  const blocked = state.step === 'blocked';
+  const reviewing = state.step === 'review' || blocked || busy;
 
   return (
     <div className="gltk-root" data-theme={props.theme ?? 'light'}>
@@ -307,8 +348,17 @@ export function GenLayerTransactionPanel(props: TransactionPanelProps) {
               </p>
             </div>
             {flow.quote.userValue > 0n ? <FeeReceipt quote={flow.quote} busy={busy} /> : null}
+            {flow.quote ? <VerificationNotice quote={flow.quote} blocked={blocked} /> : null}
             <div className="gltk-actions">
-              <HoldToSign onConfirm={() => void flow.approve()} disabled={busy} />
+              {blocked ? (
+                <div className="gltk-link-row">
+                  <button type="button" onClick={flow.reset}>
+                    Re-estimate
+                  </button>
+                </div>
+              ) : (
+                <HoldToSign onConfirm={() => void flow.approve()} disabled={busy} />
+              )}
             </div>
           </>
         ) : null}
@@ -349,8 +399,10 @@ export function GenLayerTransactionPanel(props: TransactionPanelProps) {
                 <CapsShield quote={flow.quote} />
                 <VerifyBadge
                   feeConfigHash={flow.verification?.feeConfigHash}
+                  status={flow.quote.verification.status}
                   snapState={props.snapState}
                 />
+                <VerificationNotice quote={flow.quote} blocked={blocked} />
                 {flow.quote.queue ? (
                   <p className="gltk-queue" data-clear={flow.quote.queue.pendingAhead === 0 ? 'true' : undefined}>
                     {flow.quote.queue.pendingAhead === 0
@@ -361,7 +413,15 @@ export function GenLayerTransactionPanel(props: TransactionPanelProps) {
               </>
             ) : null}
             <div className="gltk-actions">
-              <HoldToSign onConfirm={() => void flow.approve()} disabled={busy || !flow.quote} />
+              {blocked ? (
+                <div className="gltk-link-row">
+                  <button type="button" onClick={flow.reset}>
+                    Re-estimate
+                  </button>
+                </div>
+              ) : (
+                <HoldToSign onConfirm={() => void flow.approve()} disabled={busy || !flow.quote} />
+              )}
             </div>
           </>
         ) : null}
@@ -382,6 +442,20 @@ export function GenLayerTransactionPanel(props: TransactionPanelProps) {
             <Timeline status={state.status} />
             {state.step === 'done' ? <Outcome status={state.status} /> : null}
             <div className="gltk-actions">
+              {state.step === 'tracking' && (flow.canTopUp || flow.canCancel) ? (
+                <div className="gltk-management">
+                  {flow.canTopUp ? (
+                    <button type="button" onClick={() => void flow.topUp()}>
+                      Top up fees
+                    </button>
+                  ) : null}
+                  {flow.canCancel ? (
+                    <button type="button" onClick={() => void flow.cancel()}>
+                      Cancel transaction
+                    </button>
+                  ) : null}
+                </div>
+              ) : null}
               {state.step === 'done' ? (
                 <div className="gltk-link-row">
                   <button type="button" onClick={flow.reset}>

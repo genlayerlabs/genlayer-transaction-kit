@@ -410,11 +410,53 @@
 }
 
 .gltk-verify[data-state='verified'] { color: var(--gltk-success); }
+.gltk-verify[data-state='mismatch'] { color: var(--gltk-danger); }
+.gltk-verify[data-state='unavailable'] { color: var(--gltk-warn); }
 
 .gltk-verify code {
   font-family: var(--gltk-font-mono);
   font-size: 10px;
   color: var(--gltk-ink-faint);
+}
+
+.gltk-verification {
+  margin: 12px 20px 0;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--gltk-warn) 45%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--gltk-warn) 7%, var(--gltk-bg));
+}
+
+.gltk-verification[data-tone='error'] {
+  border-color: color-mix(in srgb, var(--gltk-danger) 45%, transparent);
+  background: color-mix(in srgb, var(--gltk-danger) 6%, var(--gltk-bg));
+}
+
+.gltk-verification-title {
+  margin: 0 0 3px;
+  font-family: var(--gltk-font-display);
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--gltk-warn);
+}
+
+.gltk-verification[data-tone='error'] .gltk-verification-title { color: var(--gltk-danger); }
+
+.gltk-verification-detail,
+.gltk-verification-hashes {
+  margin: 0;
+  font-size: 11px;
+  color: var(--gltk-ink-dim);
+}
+
+.gltk-verification-hashes {
+  margin-top: 5px;
+  font-family: var(--gltk-font-mono);
+  color: var(--gltk-ink-faint);
+}
+
+.gltk-verification-hashes code {
+  color: var(--gltk-ink-dim);
 }
 
 
@@ -454,6 +496,29 @@
 /* ── Hold-to-sign (signature pill) ───────────────────────── */
 
 .gltk-actions { padding: 16px 20px 18px; }
+
+.gltk-management {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.gltk-management button {
+  appearance: none;
+  border: 1px solid var(--gltk-rule);
+  border-radius: 8px;
+  background: var(--gltk-bg);
+  color: var(--gltk-ink);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 9px 10px;
+  cursor: pointer;
+}
+
+.gltk-management button:hover {
+  border-color: var(--gltk-ink-faint);
+}
 
 .gltk-hold {
   position: relative;

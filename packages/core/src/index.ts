@@ -4,16 +4,20 @@ import {
   isSuccessful as sdkIsSuccessful,
 } from 'genlayer-js';
 import type {
+  Account,
   FeesDistribution,
   FeesDistributionInput,
+  FeePolicyQuote,
   GenLayerChain,
   GenLayerTransaction,
   TransactionFeeEstimate,
 } from 'genlayer-js/types';
 
 export type {
+  Account,
   FeesDistribution,
   FeesDistributionInput,
+  FeePolicyQuote,
   GenLayerChain,
 } from 'genlayer-js/types';
 
@@ -23,6 +27,12 @@ export type PolicyInput = {
   preset?: FeePreset;
   overrides?: Partial<FeesDistributionInput>;
   userValue?: bigint;
+};
+
+export type PolicyVerification = {
+  status: 'verified' | 'mismatch' | 'unavailable';
+  expectedHash?: `0x${string}`;
+  actualHash?: `0x${string}`;
 };
 
 /** Allocation params measured offline (e.g. from the contract's test suite,
@@ -62,6 +72,11 @@ export type PolicyQuote = {
   /** True when the network's fee accounting is disabled (all prices zero —
    *  e.g. a gasless Studio). No deposit is taken and submit omits fees. */
   gasless?: boolean;
+  /** Comparison between the quoted fee config hash and the chain's current
+   *  fee policy projected onto the quote. A mismatch means the quote was
+   *  built against stale fee prices and adapters should block signing unless
+   *  explicitly configured otherwise. */
+  verification: PolicyVerification;
   breakdown: {
     timeUnitFees: bigint;
     executionBudget: bigint;
@@ -97,12 +112,26 @@ export type TrackedStatus = {
   queuePosition?: number;
 };
 
+export type CancelInput = { hash: `0x${string}` };
+
+export type CancelResult = { transaction_hash: string; status: string };
+
+export type TopUpInput = {
+  account?: Account;
+  txId: `0x${string}`;
+  distribution: FeesDistributionInput;
+  value: bigint;
+};
+
 export type TransactionKit = {
+  allowUnverified?: boolean;
   estimate(input: PolicyInput, tx?: SubmitInput): Promise<PolicyQuote>;
   submit(
     quote: PolicyQuote,
     tx: SubmitInput,
   ): Promise<{ genlayerTxId: `0x${string}`; evmTxHash?: `0x${string}` }>;
+  cancel(args: CancelInput): Promise<CancelResult>;
+  topUp(args: TopUpInput): Promise<`0x${string}`>;
   track(
     genlayerTxId: `0x${string}`,
     onUpdate: (s: TrackedStatus) => void,
@@ -124,7 +153,10 @@ type Client = {
   ) => Promise<TransactionFeeEstimate>;
   writeContract(args: Record<string, unknown>): Promise<`0x${string}`>;
   deployContract(args: Record<string, unknown>): Promise<`0x${string}`>;
+  cancelTransaction(args: CancelInput): Promise<CancelResult>;
+  topUpFees(args: TopUpInput): Promise<`0x${string}`>;
   getTransaction(args: { hash: `0x${string}` }): Promise<GenLayerTransaction>;
+  getCurrentFeePolicy?: () => Promise<FeePolicyQuote>;
   waitForTransactionReceipt?: (args: {
     hash: `0x${string}`;
     waitUntil?: 'decided' | 'finalized';
@@ -170,6 +202,14 @@ const PRESET_APPEAL_ROUNDS: Record<FeePreset, bigint> = {
   high: 5n,
 };
 
+/** Mirrors genlayer-js `DEFAULT_PRICE_CAP_HEADROOM_BPS` (src/contracts/actions.ts)
+ *  including its round-up formula. Verification reconstructs the SDK's cap
+ *  derivation from the live fee policy, so this constant MUST stay in sync with
+ *  the SDK default — drift (or a caller overriding headroom per estimate)
+ *  surfaces as 'mismatch', which fails closed: signing is blocked, never
+ *  silently allowed against stale prices. */
+const DEFAULT_PRICE_CAP_HEADROOM_BPS = 12_000n;
+
 const buildRotations = (
   appealRounds: bigint,
   rotationsPerRound: bigint,
@@ -185,6 +225,11 @@ const toCalldataArgs = (args: unknown[] | undefined): unknown[] | undefined =>
 
 const max = (value: bigint, floor: bigint): bigint =>
   value > floor ? value : floor;
+
+const withCapHeadroom = (value: bigint): bigint => {
+  if (value === 0n) return 0n;
+  return (value * DEFAULT_PRICE_CAP_HEADROOM_BPS + 9_999n) / 10_000n;
+};
 
 const leaderRounds = (distribution: FeesDistribution): bigint =>
   distribution.rotations.reduce(
@@ -219,6 +264,7 @@ const toPolicyQuote = (
   userValue,
   total: estimate.feeValue + userValue,
   source,
+  verification: { status: 'unavailable' },
   breakdown: buildBreakdown(estimate),
   caps: {
     genPerTimeUnit: estimate.distribution.maxPriceGenPerTimeUnit,
@@ -352,6 +398,33 @@ const hashFeeConfig = (distribution: FeesDistribution): `0x${string}` =>
       [feeTuple(distribution), []],
     ),
   ) as `0x${string}`;
+
+const feeConfigForPolicy = (
+  distribution: FeesDistribution,
+  policy: FeePolicyQuote,
+): FeesDistribution => ({
+  ...distribution,
+  maxPriceGenPerTimeUnit: withCapHeadroom(policy.genPerTimeUnit),
+  storageFeeMaxGasPrice: withCapHeadroom(policy.storageUnitPrice),
+  receiptFeeMaxGasPrice: withCapHeadroom(policy.receiptGasPrice),
+});
+
+const buildVerification = (
+  distribution: FeesDistribution,
+  currentPolicy: FeePolicyQuote | undefined,
+): PolicyVerification => {
+  const expectedHash = hashFeeConfig(distribution);
+  if (!currentPolicy) {
+    return { status: 'unavailable', expectedHash };
+  }
+
+  const actualHash = hashFeeConfig(feeConfigForPolicy(distribution, currentPolicy));
+  return {
+    status: expectedHash === actualHash ? 'verified' : 'mismatch',
+    expectedHash,
+    actualHash,
+  };
+};
 
 const asStringRecord = (quote: PolicyQuote, tx: SubmitInput) => ({
   kind: tx.kind,
@@ -498,6 +571,7 @@ export function createTransactionKit(opts: {
   chain: GenLayerChain;
   provider: Eip1193Provider;
   account?: `0x${string}`;
+  allowUnverified?: boolean;
   /** Developer fee profile (allocations measured by the contract's test
    *  suite). When a suggestion matches the transaction, it seeds the
    *  estimate; the panel never simulates the call live. */
@@ -519,12 +593,14 @@ export function createTransactionKit(opts: {
     const userValue = input.userValue ?? 0n;
     const suggestion = resolveSuggestion(opts.suggestions, tx);
     const feeOptions = buildFeeOptions(input, suggestion);
-    const [sdkEstimate, pendingAhead] = await Promise.all([
+    const [sdkEstimate, pendingAhead, currentPolicy] = await Promise.all([
       client.estimateTransactionFees(feeOptions),
       // a deploy targets a fresh address, so its queue is necessarily empty
       tx?.kind === 'write'
         ? readPendingAhead(opts.provider, opts.chain, tx.address, queueCache)
         : Promise.resolve(undefined),
+      client.getCurrentFeePolicy?.().catch(() => undefined) ??
+        Promise.resolve(undefined),
     ]);
 
     const quote = toPolicyQuote(
@@ -532,6 +608,7 @@ export function createTransactionKit(opts: {
       userValue,
       suggestion ? 'developer' : 'network-default',
     );
+    quote.verification = buildVerification(quote.distribution, currentPolicy);
     if (pendingAhead !== undefined) {
       quote.queue = { pendingAhead };
     }
@@ -575,6 +652,12 @@ export function createTransactionKit(opts: {
     return result;
   };
 
+  const cancel = async (args: CancelInput): Promise<CancelResult> =>
+    client.cancelTransaction(args);
+
+  const topUp = async (args: TopUpInput): Promise<`0x${string}`> =>
+    client.topUpFees(args);
+
   const track = async (
     genlayerTxId: `0x${string}`,
     onUpdate: (s: TrackedStatus) => void,
@@ -606,12 +689,16 @@ export function createTransactionKit(opts: {
   };
 
   return {
+    ...(opts.allowUnverified ? { allowUnverified: true } : {}),
     estimate,
     submit,
+    cancel,
+    topUp,
     track,
     verification(quote: PolicyQuote, tx: SubmitInput) {
       return {
-        feeConfigHash: hashFeeConfig(quote.distribution),
+        feeConfigHash:
+          quote.verification?.expectedHash ?? hashFeeConfig(quote.distribution),
         summary: asStringRecord(quote, tx),
       };
     },
