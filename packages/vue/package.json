@@ -28,6 +28,7 @@
     "test": "vitest run"
   },
   "peerDependencies": {
+    "@genlayer/transaction-kit": "0.1.0-rc.1",
     "vue": ">=3.3"
   },
   "devDependencies": {

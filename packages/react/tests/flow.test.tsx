@@ -28,6 +28,30 @@ function createPendingKit(): {
 }
 
 describe('useTransactionFlow', () => {
+  it('normalizes public numeric override inputs in the adapter mock', async () => {
+    const quote = await createMockKit({ delays: fast }).estimate({
+      overrides: {
+        leaderTimeunitsAllocation: '120',
+        validatorTimeunitsAllocation: 220,
+        appealRounds: '2',
+        executionBudgetPerRound: '1000',
+        totalMessageFees: '300',
+        rotations: ['1', 2, 3n],
+      },
+    });
+
+    expect(quote.distribution).toMatchObject({
+      leaderTimeunitsAllocation: 120n,
+      validatorTimeunitsAllocation: 220n,
+      appealRounds: 2n,
+      executionBudgetPerRound: 1000n,
+      totalMessageFees: 300n,
+      rotations: [1n, 2n, 3n],
+    });
+    expect(quote.breakdown.executionBudget).toBe(5000n);
+    expect(quote.feeValue).toBe(6_100_000_000_000_005_300n);
+  });
+
   it('estimates into review, approves through tracking to done', async () => {
     const kit = createMockKit({ delays: fast });
     const { result } = renderHook(() => useTransactionFlow({ kit, tx }));

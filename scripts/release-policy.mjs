@@ -76,5 +76,13 @@ export function validatePackageSet(packageSet, requestedVersion) {
     );
   }
 
+  for (const { manifest } of packageSet.slice(1)) {
+    if (manifest.peerDependencies?.['@genlayer/transaction-kit'] !== requestedVersion) {
+      throw new Error(
+        `${manifest.name} must pin @genlayer/transaction-kit@${requestedVersion} as a peer dependency`,
+      );
+    }
+  }
+
   return release;
 }
