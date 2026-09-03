@@ -50,6 +50,10 @@ export type SuggestedFees = {
 
 export type FeeSuggestions = {
   version?: number;
+  /** Chain where these allocations were measured. Profiles without an exact
+   *  chain-id match are ignored so measurements cannot cross networks. */
+  chainId?: bigint | number | string;
+  /** Human-readable provenance only. Selection is based on `chainId`. */
   network?: string;
   measuredAt?: string;
   deploy?: SuggestedFees;
@@ -75,7 +79,8 @@ export type PolicyQuote = {
   /** Comparison between the quoted fee config hash and the chain's current
    *  fee policy projected onto the quote. A mismatch means the quote was
    *  built against stale fee prices and adapters should block signing unless
-   *  explicitly configured otherwise. */
+   *  explicitly configured otherwise. This verifies live price caps, not the
+   *  developer profile's measured allocations. */
   verification: PolicyVerification;
   breakdown: {
     timeUnitFees: bigint;
@@ -277,12 +282,42 @@ const toPolicyQuote = (
 const resolveSuggestion = (
   suggestions: FeeSuggestions | undefined,
   tx: SubmitInput | undefined,
+  chainId: number,
 ): SuggestedFees | undefined => {
-  if (!suggestions || !tx) return undefined;
+  if (!suggestions || !tx || !matchesChainId(suggestions.chainId, chainId)) {
+    return undefined;
+  }
   return tx.kind === 'deploy'
     ? suggestions.deploy
     : suggestions.methods?.[tx.method];
 };
+
+const matchesChainId = (
+  profileChainId: FeeSuggestions['chainId'],
+  activeChainId: number,
+): boolean => {
+  if (profileChainId === undefined || !Number.isSafeInteger(activeChainId)) {
+    return false;
+  }
+
+  try {
+    const normalized = BigInt(profileChainId);
+    return normalized >= 0n && normalized === BigInt(activeChainId);
+  } catch {
+    return false;
+  }
+};
+
+const profileIsBelowExecutionFloor = (
+  suggestion: SuggestedFees | undefined,
+  input: PolicyInput,
+  estimate: TransactionFeeEstimate,
+): boolean =>
+  suggestion?.executionBudgetPerRound !== undefined &&
+  input.overrides?.executionBudgetPerRound === undefined &&
+  estimate.policy.enabled &&
+  estimate.distribution.executionBudgetPerRound <
+    estimate.policy.executionBudgetFloor;
 
 // Merge order: preset (appeal posture) < developer suggestion (measured
 // allocations) < caller overrides. Prices/caps stay unset so the SDK fills
@@ -573,8 +608,9 @@ export function createTransactionKit(opts: {
   account?: `0x${string}`;
   allowUnverified?: boolean;
   /** Developer fee profile (allocations measured by the contract's test
-   *  suite). When a suggestion matches the transaction, it seeds the
-   *  estimate; the panel never simulates the call live. */
+   *  suite). A profile must declare a `chainId` matching `chain.id`; otherwise
+   *  it is ignored. When a safe suggestion matches the transaction, it seeds
+   *  the estimate; the panel never simulates the call live. */
   suggestions?: FeeSuggestions;
 }): TransactionKit {
   const captured = captureProviderTxHash(opts.provider);
@@ -591,10 +627,15 @@ export function createTransactionKit(opts: {
     tx?: SubmitInput,
   ): Promise<PolicyQuote> => {
     const userValue = input.userValue ?? 0n;
-    const suggestion = resolveSuggestion(opts.suggestions, tx);
-    const feeOptions = buildFeeOptions(input, suggestion);
-    const [sdkEstimate, pendingAhead, currentPolicy] = await Promise.all([
-      client.estimateTransactionFees(feeOptions),
+    const candidateSuggestion = resolveSuggestion(
+      opts.suggestions,
+      tx,
+      opts.chain.id,
+    );
+    const [candidateEstimate, pendingAhead, currentPolicy] = await Promise.all([
+      client.estimateTransactionFees(
+        buildFeeOptions(input, candidateSuggestion),
+      ),
       // a deploy targets a fresh address, so its queue is necessarily empty
       tx?.kind === 'write'
         ? readPendingAhead(opts.provider, opts.chain, tx.address, queueCache)
@@ -602,6 +643,23 @@ export function createTransactionKit(opts: {
       client.getCurrentFeePolicy?.().catch(() => undefined) ??
         Promise.resolve(undefined),
     ]);
+
+    // The SDK estimate already carries the live execution-budget floor. If a
+    // chain-matched developer profile falls below it, discard the whole
+    // profile and let the SDK rebuild an internally coherent default quote.
+    // Re-estimating is limited to this unsafe fallback path; we do not patch
+    // feeValue locally or invent a fee formula in the kit.
+    const suggestion = profileIsBelowExecutionFloor(
+      candidateSuggestion,
+      input,
+      candidateEstimate,
+    )
+      ? undefined
+      : candidateSuggestion;
+    const sdkEstimate =
+      candidateSuggestion && !suggestion
+        ? await client.estimateTransactionFees(buildFeeOptions(input))
+        : candidateEstimate;
 
     const quote = toPolicyQuote(
       sdkEstimate,

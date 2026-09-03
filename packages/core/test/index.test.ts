@@ -190,6 +190,7 @@ describe('transaction kit core', () => {
       provider: provider(),
       account: `0x${'1'.repeat(40)}`,
       suggestions: {
+        chainId: 61999,
         methods: {
           update_storage: {
             leaderTimeunitsAllocation: '1100',
@@ -217,6 +218,161 @@ describe('transaction kit core', () => {
       executionBudgetPerRound: '229600000000000',
     });
     expect(quote.source).toBe('developer');
+  });
+
+  it('ignores an unscoped developer profile', async () => {
+    const client = {
+      estimateTransactionFees: vi.fn(async () => ({
+        distribution: distribution(),
+        feeValue: 500n,
+        policy: feePolicy(),
+      })),
+    };
+    mocks.createClient.mockReturnValue(client);
+
+    const { createTransactionKit } = await import('../src/index');
+    const kit = createTransactionKit({
+      chain,
+      provider: provider(),
+      suggestions: {
+        network: 'localnet',
+        methods: {
+          update_storage: { executionBudgetPerRound: '1' },
+        },
+      },
+    });
+
+    const quote = await kit.estimate(
+      { preset: 'standard' },
+      { kind: 'write', address: `0x${'2'.repeat(40)}`, method: 'update_storage' },
+    );
+
+    expect(client.estimateTransactionFees).toHaveBeenCalledWith({
+      appealRounds: 3n,
+      rotations: [0n, 0n, 0n, 0n],
+    });
+    expect(quote.source).toBe('network-default');
+  });
+
+  it('ignores a developer profile measured on another chain', async () => {
+    const client = {
+      estimateTransactionFees: vi.fn(async () => ({
+        distribution: distribution(),
+        feeValue: 500n,
+        policy: feePolicy(),
+      })),
+    };
+    mocks.createClient.mockReturnValue(client);
+
+    const { createTransactionKit } = await import('../src/index');
+    const kit = createTransactionKit({
+      chain,
+      provider: provider(),
+      suggestions: {
+        chainId: 61997,
+        network: 'studio-dev',
+        methods: {
+          update_storage: { executionBudgetPerRound: '1' },
+        },
+      },
+    });
+
+    const quote = await kit.estimate(
+      { preset: 'standard' },
+      { kind: 'write', address: `0x${'2'.repeat(40)}`, method: 'update_storage' },
+    );
+
+    expect(client.estimateTransactionFees).toHaveBeenCalledWith({
+      appealRounds: 3n,
+      rotations: [0n, 0n, 0n, 0n],
+    });
+    expect(quote.source).toBe('network-default');
+  });
+
+  it('ignores malformed chain provenance without failing the estimate', async () => {
+    const client = {
+      estimateTransactionFees: vi.fn(async () => ({
+        distribution: distribution(),
+        feeValue: 500n,
+        policy: feePolicy(),
+      })),
+    };
+    mocks.createClient.mockReturnValue(client);
+
+    const { createTransactionKit } = await import('../src/index');
+    const kit = createTransactionKit({
+      chain,
+      provider: provider(),
+      suggestions: {
+        chainId: 'localnet',
+        methods: {
+          update_storage: { executionBudgetPerRound: '1' },
+        },
+      },
+    });
+
+    const quote = await kit.estimate(
+      { preset: 'standard' },
+      { kind: 'write', address: `0x${'2'.repeat(40)}`, method: 'update_storage' },
+    );
+
+    expect(client.estimateTransactionFees).toHaveBeenCalledWith({
+      appealRounds: 3n,
+      rotations: [0n, 0n, 0n, 0n],
+    });
+    expect(quote.source).toBe('network-default');
+  });
+
+  it('falls back to network defaults when a matched profile is below the live execution floor', async () => {
+    const client = {
+      estimateTransactionFees: vi
+        .fn()
+        .mockResolvedValueOnce({
+          distribution: distribution({ executionBudgetPerRound: 100n }),
+          feeValue: 500n,
+          policy: feePolicy({ executionBudgetFloor: 700n }),
+        })
+        .mockResolvedValueOnce({
+          distribution: distribution({ executionBudgetPerRound: 700n }),
+          feeValue: 2_300n,
+          policy: feePolicy({ executionBudgetFloor: 700n }),
+        }),
+    };
+    mocks.createClient.mockReturnValue(client);
+
+    const { createTransactionKit } = await import('../src/index');
+    const kit = createTransactionKit({
+      chain,
+      provider: provider(),
+      suggestions: {
+        chainId: '61999',
+        methods: {
+          update_storage: {
+            leaderTimeunitsAllocation: '1100',
+            executionBudgetPerRound: '100',
+          },
+        },
+      },
+    });
+
+    const quote = await kit.estimate(
+      { preset: 'standard' },
+      { kind: 'write', address: `0x${'2'.repeat(40)}`, method: 'update_storage' },
+    );
+
+    expect(client.estimateTransactionFees).toHaveBeenNthCalledWith(1, {
+      appealRounds: 3n,
+      rotations: [0n, 0n, 0n, 0n],
+      leaderTimeunitsAllocation: '1100',
+      executionBudgetPerRound: '100',
+    });
+    expect(client.estimateTransactionFees).toHaveBeenNthCalledWith(2, {
+      appealRounds: 3n,
+      rotations: [0n, 0n, 0n, 0n],
+    });
+    expect(quote.source).toBe('network-default');
+    expect(quote.distribution.executionBudgetPerRound).toBe(700n);
+    expect(quote.feeValue).toBe(2_300n);
   });
 
   it('marks gasless networks and submits without fee params', async () => {
