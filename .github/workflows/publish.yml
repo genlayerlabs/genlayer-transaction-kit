@@ -1,0 +1,149 @@
+name: Publish packages to npm
+
+on:
+  push:
+    branches:
+      - "v*"
+      - "v*-dev"
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  credentials:
+    name: Verify npm publishing credentials
+    if: startsWith(github.ref, 'refs/heads/')
+    runs-on: ubuntu-latest
+    environment: Publish
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          registry-url: "https://registry.npmjs.org"
+      - name: Require and validate the repository-owned npm token
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [ -z "$NODE_AUTH_TOKEN" ]; then
+            echo "NPM_TOKEN is not available to the Publish environment." >&2
+            exit 1
+          fi
+          npm whoami
+
+  publish:
+    name: Publish coordinated package set
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    environment: Publish
+    concurrency:
+      group: npm-${{ github.ref }}
+      cancel-in-progress: false
+    steps:
+      - name: Checkout tag
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          registry-url: "https://registry.npmjs.org"
+          cache: npm
+
+      - name: Require repository-owned npm credentials
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [ -z "$NODE_AUTH_TOKEN" ]; then
+            echo "NPM_TOKEN is not available to the Publish environment." >&2
+            exit 1
+          fi
+          npm whoami
+
+      - name: Verify tag, package set, and owning branch
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          release_json="$(node scripts/check-release.mjs --version "$version" --tag "$GITHUB_REF_NAME")"
+          branch="$(node -e 'console.log(JSON.parse(process.argv[1]).branch)' "$release_json")"
+          git fetch origin "refs/heads/$branch:refs/remotes/origin/$branch"
+          if [ "$(git rev-parse HEAD)" != "$(git rev-parse "origin/$branch")" ]; then
+            echo "$GITHUB_REF_NAME is not the current head of $branch; refusing to publish." >&2
+            exit 1
+          fi
+
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run build
+      - run: npm test
+      - run: npm run pack:check
+
+      - name: Verify upstream and existing package provenance
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          required_js="$(node -e "import('./scripts/release-policy.mjs').then(m => console.log(m.requiredGenlayerJsVersion))")"
+          test "$(npm view "genlayer-js@$required_js" version)" = "$required_js"
+          for package_name in \
+            @genlayer/transaction-kit \
+            @genlayer/transaction-kit-react \
+            @genlayer/transaction-kit-vue; do
+            if npm view "$package_name@$version" version >/dev/null 2>&1; then
+              published_sha="$(npm view "$package_name@$version" gitHead)"
+              if [ "$published_sha" != "$GITHUB_SHA" ]; then
+                echo "$package_name@$version already exists from $published_sha, not $GITHUB_SHA." >&2
+                exit 1
+              fi
+              echo "$package_name@$version already exists from this release commit; it can be resumed safely."
+            fi
+          done
+
+      - name: Publish all packages
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          dist_tag="$(node -e "import('./scripts/release-policy.mjs').then(m => console.log(m.parseReleaseVersion(process.argv[1]).distTag))" "$version")"
+          for workspace in packages/core packages/react packages/vue; do
+            package_name="$(node -p "require('./$workspace/package.json').name")"
+            if [ "$(npm view "$package_name@$version" gitHead 2>/dev/null || true)" = "$GITHUB_SHA" ]; then
+              echo "$package_name@$version was already published from this release commit; skipping."
+              continue
+            fi
+            npm publish --workspace "$workspace" --tag "$dist_tag" --provenance --access public
+          done
+
+      - name: Verify registry artifacts
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          for package_name in \
+            @genlayer/transaction-kit \
+            @genlayer/transaction-kit-react \
+            @genlayer/transaction-kit-vue; do
+            for attempt in 1 2 3 4 5 6; do
+              published="$(npm view "$package_name@$version" version 2>/dev/null || true)"
+              if [ "$published" = "$version" ]; then
+                break
+              fi
+              if [ "$attempt" -eq 6 ]; then
+                echo "$package_name@$version was not visible after publication." >&2
+                exit 1
+              fi
+              sleep 5
+            done
+          done
+
+      - name: Create GitHub prerelease
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          prerelease=()
+          if [[ "$GITHUB_REF_NAME" == *-* ]]; then
+            prerelease+=(--prerelease)
+          fi
+          gh release create "$GITHUB_REF_NAME" \
+            --verify-tag \
+            --title "$GITHUB_REF_NAME" \
+            --generate-notes \
+            "${prerelease[@]}"
