@@ -30,6 +30,12 @@ export type PolicyInput = {
   userValue?: bigint;
 };
 
+export type PolicyVerification = {
+  status: 'verified' | 'mismatch' | 'unavailable';
+  expectedHash?: Hex;
+  actualHash?: Hex;
+};
+
 export type PolicyQuote = {
   distribution: FeesDistributionInput & { executionConsumed: bigint };
   feeValue: bigint;
@@ -46,6 +52,7 @@ export type PolicyQuote = {
   queue?: { pendingAhead: number };
   /** True when the network charges no fees (gasless Studio). */
   gasless?: boolean;
+  verification: PolicyVerification;
   refundable: true;
 };
 
@@ -72,12 +79,26 @@ export type TrackedStatus = {
   queuePosition?: number;
 };
 
+export type CancelInput = { hash: Hex };
+
+export type CancelResult = { transaction_hash: string; status: string };
+
+export type TopUpInput = {
+  account?: unknown;
+  txId: Hex;
+  distribution: FeesDistributionInput;
+  value: bigint;
+};
+
 export type TransactionKit = {
+  allowUnverified?: boolean;
   estimate(input: PolicyInput, tx?: SubmitInput): Promise<PolicyQuote>;
   submit(
     quote: PolicyQuote,
     tx: SubmitInput,
   ): Promise<{ genlayerTxId: Hex; evmTxHash?: Hex }>;
+  cancel(args: CancelInput): Promise<CancelResult>;
+  topUp(args: TopUpInput): Promise<Hex>;
   track(
     genlayerTxId: Hex,
     onUpdate: (s: TrackedStatus) => void,

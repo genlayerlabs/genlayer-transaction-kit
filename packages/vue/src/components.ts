@@ -284,6 +284,37 @@ function outcomeSurface(status: TrackedStatus): VNodeChild {
   ]);
 }
 
+function verificationNotice(quote: PolicyQuote, blocked: boolean): VNodeChild {
+  const verification = quote.verification;
+  if (verification.status === 'verified') return null;
+  if (verification.status === 'mismatch') {
+    return h('div', { class: 'gltk-verification', 'data-tone': blocked ? 'error' : 'warn' }, [
+      h('p', { class: 'gltk-verification-title' }, 'Fee policy changed'),
+      h(
+        'p',
+        { class: 'gltk-verification-detail' },
+        'The quoted fee configuration no longer matches the chain. Re-estimate before signing.',
+      ),
+      verification.expectedHash && verification.actualHash
+        ? h('p', { class: 'gltk-verification-hashes' }, [
+            'expected ',
+            h('code', shortHash(verification.expectedHash)),
+            ' · actual ',
+            h('code', shortHash(verification.actualHash)),
+          ])
+        : null,
+    ]);
+  }
+  return h('div', { class: 'gltk-verification', 'data-tone': 'warn' }, [
+    h('p', { class: 'gltk-verification-title' }, 'Fee policy check unavailable'),
+    h(
+      'p',
+      { class: 'gltk-verification-detail' },
+      'The quote can still be signed, but the live fee-policy check did not complete.',
+    ),
+  ]);
+}
+
 export const GenLayerTransactionPanel = defineComponent({
   name: 'GenLayerTransactionPanel',
   props: {
@@ -320,7 +351,8 @@ export const GenLayerTransactionPanel = defineComponent({
     return () => {
       const state = flow.state.value;
       const busy = state.step === 'estimating';
-      const reviewing = state.step === 'review' || busy;
+      const blocked = state.step === 'blocked';
+      const reviewing = state.step === 'review' || blocked || busy;
       const children: VNodeChild[] = [
         h('div', { class: 'gltk-head' }, [
           h('span', { class: 'gltk-head-title' }, 'GenLayer transaction'),
@@ -347,12 +379,17 @@ export const GenLayerTransactionPanel = defineComponent({
         if (quote.userValue > 0n) {
           children.push(h(FeeReceipt, { quote, busy }));
         }
+        children.push(verificationNotice(quote, blocked));
         children.push(
           h('div', { class: 'gltk-actions' }, [
-            h(HoldToSign, {
-              disabled: busy,
-              onConfirm: () => void flow.approve(),
-            }),
+            blocked
+              ? h('div', { class: 'gltk-link-row' }, [
+                  h('button', { type: 'button', onClick: () => flow.reset() }, 'Re-estimate'),
+                ])
+              : h(HoldToSign, {
+                  disabled: busy,
+                  onConfirm: () => void flow.approve(),
+                }),
           ]),
         );
       } else if (reviewing) {
@@ -413,32 +450,41 @@ export const GenLayerTransactionPanel = defineComponent({
           }
           const verification = flow.verification.value;
           if (verification) {
+            const status = quote.verification.status;
+            const label =
+              props.snapState === 'verified'
+                ? '✓ Verified by GenLayer Snap'
+                : status === 'mismatch'
+                  ? 'Policy mismatch'
+                  : status === 'unavailable'
+                    ? 'Policy fingerprint (unchecked)'
+                    : 'Policy fingerprint';
             children.push(
               h(
                 'div',
                 {
                   class: 'gltk-verify',
-                  'data-state': props.snapState === 'verified' ? 'verified' : undefined,
+                  'data-state': props.snapState === 'verified' ? 'verified' : status,
                 },
                 [
-                  h(
-                    'span',
-                    props.snapState === 'verified'
-                      ? '✓ Verified by GenLayer Snap'
-                      : 'Policy fingerprint',
-                  ),
+                  h('span', label),
                   h('code', shortHash(verification.feeConfigHash, 10, 6)),
                 ],
               ),
             );
           }
+          children.push(verificationNotice(quote, blocked));
         }
         children.push(
           h('div', { class: 'gltk-actions' }, [
-            h(HoldToSign, {
-              disabled: busy || !flow.quote.value,
-              onConfirm: () => void flow.approve(),
-            }),
+            blocked
+              ? h('div', { class: 'gltk-link-row' }, [
+                  h('button', { type: 'button', onClick: () => flow.reset() }, 'Re-estimate'),
+                ])
+              : h(HoldToSign, {
+                  disabled: busy || !flow.quote.value,
+                  onConfirm: () => void flow.approve(),
+                }),
           ]),
         );
       }
@@ -456,6 +502,20 @@ export const GenLayerTransactionPanel = defineComponent({
 
       if (state.step === 'tracking' || state.step === 'done') {
         children.push(h(Timeline, { status: state.status }));
+        if (state.step === 'tracking' && (flow.canTopUp.value || flow.canCancel.value)) {
+          children.push(
+            h('div', { class: 'gltk-actions' }, [
+              h('div', { class: 'gltk-management' }, [
+                flow.canTopUp.value
+                  ? h('button', { type: 'button', onClick: () => void flow.topUp() }, 'Top up fees')
+                  : null,
+                flow.canCancel.value
+                  ? h('button', { type: 'button', onClick: () => void flow.cancel() }, 'Cancel transaction')
+                  : null,
+              ]),
+            ]),
+          );
+        }
         if (state.step === 'done') {
           children.push(outcomeSurface(state.status));
           children.push(

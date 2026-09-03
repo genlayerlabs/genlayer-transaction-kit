@@ -61,6 +61,15 @@ const distribution = (overrides: Partial<FeesDistribution> = {}) =>
     ...overrides,
   }) satisfies FeesDistribution;
 
+const feePolicy = (overrides: Record<string, bigint | boolean> = {}) => ({
+  enabled: true,
+  genPerTimeUnit: 2n,
+  storageUnitPrice: 3n,
+  receiptGasPrice: 4n,
+  executionBudgetFloor: 0n,
+  ...overrides,
+});
+
 const provider = (hash = `0x${'a'.repeat(64)}`) => ({
   request: vi.fn(async ({ method }: { method: string; params?: unknown[] }) => {
     if (method === 'eth_sendTransaction') {
@@ -387,6 +396,11 @@ describe('transaction kit core', () => {
         receiptPrice: 5n,
       },
       source: 'network-default' as const,
+      verification: {
+        status: 'verified' as const,
+        expectedHash: `0x${'0'.repeat(64)}` as const,
+        actualHash: `0x${'0'.repeat(64)}` as const,
+      },
       refundable: true,
     } as const;
 
@@ -415,6 +429,119 @@ describe('transaction kit core', () => {
       genlayerTxId: `0x${'c'.repeat(64)}`,
       evmTxHash,
     });
+  });
+
+  it('cancels through the SDK cancelTransaction path', async () => {
+    const hash = `0x${'f'.repeat(64)}` as const;
+    const client = {
+      cancelTransaction: vi.fn(async () => ({
+        transaction_hash: hash,
+        status: 'CANCELED',
+      })),
+    };
+    mocks.createClient.mockReturnValue(client);
+
+    const { createTransactionKit } = await import('../src/index');
+    const kit = createTransactionKit({
+      chain,
+      provider: provider(),
+      account: `0x${'1'.repeat(40)}`,
+    });
+
+    const result = await kit.cancel({ hash });
+
+    expect(client.cancelTransaction).toHaveBeenCalledWith({ hash });
+    expect(result).toEqual({ transaction_hash: hash, status: 'CANCELED' });
+  });
+
+  it('tops up fees through the SDK topUpFees path', async () => {
+    const txId = `0x${'e'.repeat(64)}` as const;
+    const evmHash = `0x${'a'.repeat(64)}` as const;
+    const fees = distribution();
+    const client = {
+      topUpFees: vi.fn(async () => evmHash),
+    };
+    mocks.createClient.mockReturnValue(client);
+
+    const { createTransactionKit } = await import('../src/index');
+    const kit = createTransactionKit({
+      chain,
+      provider: provider(),
+      account: `0x${'1'.repeat(40)}`,
+    });
+
+    const result = await kit.topUp({
+      txId,
+      distribution: fees,
+      value: 123n,
+    });
+
+    expect(client.topUpFees).toHaveBeenCalledWith({
+      txId,
+      distribution: fees,
+      value: 123n,
+    });
+    expect(result).toBe(evmHash);
+  });
+
+  it('propagates wallet rejections from cancel and top-up', async () => {
+    const client = {
+      cancelTransaction: vi.fn(async () => {
+        throw new Error('user rejected the request (4001)');
+      }),
+      topUpFees: vi.fn(async () => {
+        throw new Error('user rejected the request (4001)');
+      }),
+    };
+    mocks.createClient.mockReturnValue(client);
+
+    const { createTransactionKit } = await import('../src/index');
+    const kit = createTransactionKit({
+      chain,
+      provider: provider(),
+      account: `0x${'1'.repeat(40)}`,
+    });
+
+    await expect(kit.cancel({ hash: `0x${'f'.repeat(64)}` })).rejects.toThrow(
+      /rejected/u,
+    );
+    await expect(
+      kit.topUp({
+        txId: `0x${'e'.repeat(64)}`,
+        distribution: distribution(),
+        value: 1n,
+      }),
+    ).rejects.toThrow(/rejected/u);
+  });
+
+  it('propagates unknown transaction errors from cancel and top-up', async () => {
+    const client = {
+      cancelTransaction: vi.fn(async () => {
+        throw new Error('unknown transaction');
+      }),
+      topUpFees: vi.fn(async () => {
+        throw new Error('unknown transaction');
+      }),
+    };
+    mocks.createClient.mockReturnValue(client);
+
+    const { createTransactionKit } = await import('../src/index');
+    const kit = createTransactionKit({
+      chain,
+      provider: provider(),
+      account: `0x${'1'.repeat(40)}`,
+    });
+
+    await expect(kit.cancel({ hash: `0x${'f'.repeat(64)}` })).rejects.toThrow(
+      /unknown transaction/u,
+    );
+    await expect(
+      kit.topUp({
+        txId: `0x${'e'.repeat(64)}`,
+        distribution: distribution(),
+        value: 1n,
+      }),
+    ).rejects.toThrow(/unknown transaction/u);
   });
 
   it('tracks submitted to decided and maps successful transactions', async () => {
@@ -484,6 +611,97 @@ describe('transaction kit core', () => {
     });
   });
 
+  it('marks estimates verified when the current fee policy matches the quote hash', async () => {
+    const policy = feePolicy();
+    const client = {
+      estimateTransactionFees: vi.fn(async () => ({
+        distribution: distribution(),
+        feeValue: 350n,
+        policy,
+      })),
+      getCurrentFeePolicy: vi.fn(async () => policy),
+    };
+    mocks.createClient.mockReturnValue(client);
+
+    const { createTransactionKit } = await import('../src/index');
+    const kit = createTransactionKit({
+      chain,
+      provider: provider(),
+      account: `0x${'1'.repeat(40)}`,
+    });
+
+    const quote = await kit.estimate(
+      { preset: 'standard' },
+      { kind: 'deploy', code: 'class C: pass' },
+    );
+
+    expect(client.getCurrentFeePolicy).toHaveBeenCalled();
+    expect(quote.verification.status).toBe('verified');
+    expect(quote.verification.expectedHash).toMatch(/^0x[0-9a-f]{64}$/u);
+    expect(quote.verification.actualHash).toBe(quote.verification.expectedHash);
+  });
+
+  it('marks estimates mismatched when the live fee policy hash differs', async () => {
+    const client = {
+      estimateTransactionFees: vi.fn(async () => ({
+        distribution: distribution(),
+        feeValue: 350n,
+        policy: feePolicy(),
+      })),
+      getCurrentFeePolicy: vi.fn(async () =>
+        feePolicy({ genPerTimeUnit: 3n }),
+      ),
+    };
+    mocks.createClient.mockReturnValue(client);
+
+    const { createTransactionKit } = await import('../src/index');
+    const kit = createTransactionKit({
+      chain,
+      provider: provider(),
+      account: `0x${'1'.repeat(40)}`,
+    });
+
+    const quote = await kit.estimate(
+      { preset: 'standard' },
+      { kind: 'deploy', code: 'class C: pass' },
+    );
+
+    expect(quote.verification.status).toBe('mismatch');
+    expect(quote.verification.expectedHash).toMatch(/^0x[0-9a-f]{64}$/u);
+    expect(quote.verification.actualHash).toMatch(/^0x[0-9a-f]{64}$/u);
+    expect(quote.verification.actualHash).not.toBe(quote.verification.expectedHash);
+  });
+
+  it('marks verification unavailable when the fee policy read fails', async () => {
+    const client = {
+      estimateTransactionFees: vi.fn(async () => ({
+        distribution: distribution(),
+        feeValue: 350n,
+        policy: feePolicy(),
+      })),
+      getCurrentFeePolicy: vi.fn(async () => {
+        throw new Error('fee policy unavailable');
+      }),
+    };
+    mocks.createClient.mockReturnValue(client);
+
+    const { createTransactionKit } = await import('../src/index');
+    const kit = createTransactionKit({
+      chain,
+      provider: provider(),
+      account: `0x${'1'.repeat(40)}`,
+    });
+
+    const quote = await kit.estimate(
+      { preset: 'standard' },
+      { kind: 'deploy', code: 'class C: pass' },
+    );
+
+    expect(quote.verification.status).toBe('unavailable');
+    expect(quote.verification.expectedHash).toMatch(/^0x[0-9a-f]{64}$/u);
+    expect(quote.verification.actualHash).toBeUndefined();
+  });
+
   it('returns a stable verification hash for identical quotes', async () => {
     mocks.createClient.mockReturnValue({});
 
@@ -509,6 +727,11 @@ describe('transaction kit core', () => {
         receiptPrice: 5n,
       },
       source: 'network-default' as const,
+      verification: {
+        status: 'verified' as const,
+        expectedHash: `0x${'0'.repeat(64)}` as const,
+        actualHash: `0x${'0'.repeat(64)}` as const,
+      },
       refundable: true,
     } as const;
     const tx: SubmitInput = {

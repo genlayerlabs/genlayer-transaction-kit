@@ -7,7 +7,7 @@ verification layer, never a requirement.
 
 | Package | What it is |
 | --- | --- |
-| [`@genlayer/transaction-kit`](packages/core) | Framework-agnostic core: `estimate` → `PolicyQuote`, `submit` (direct route via the injected wallet), `track` to decided/finalized, `verification` fee-config hash. Built on genlayer-js v2. |
+| [`@genlayer/transaction-kit`](packages/core) | Framework-agnostic core: `estimate` → `PolicyQuote`, `submit` (direct route via the injected wallet), `track` to decided/finalized, `cancel`, `topUp`, `verification` fee-config hash. Built on genlayer-js v2. |
 | [`@genlayer/transaction-kit-react`](packages/react) | `<GenLayerTransactionPanel />` + headless `useTransactionFlow` |
 | [`@genlayer/transaction-kit-vue`](packages/vue) | Vue 3 equivalents |
 
@@ -19,23 +19,16 @@ Stage-1 scope: **direct submission only**. EIP-712 intents, the gateway contract
 ERC-7730 clear-signing metadata are stage 2 (see the wallet architecture doc in
 `genlayer-wallet`).
 
-## Installing before the npm release
+## Installation
 
-npm `github:` dependencies can't reach monorepo subpackages, so each package is also
-published as a packed orphan branch (`npm pack` output, dist included):
+The first public release is available on the `rc` channel and is paired with
+`genlayer-js@2.0.0-rc.1`:
 
-```jsonc
-{
-  "dependencies": {
-    "@genlayer/transaction-kit": "github:genlayerlabs/genlayer-transaction-kit#pkg/core",
-    "@genlayer/transaction-kit-react": "github:genlayerlabs/genlayer-transaction-kit#pkg/react",
-    "@genlayer/transaction-kit-vue": "github:genlayerlabs/genlayer-transaction-kit#pkg/vue"
-  }
-}
+```bash
+npm install @genlayer/transaction-kit@rc
+npm install @genlayer/transaction-kit-react@rc # React applications
+npm install @genlayer/transaction-kit-vue@rc   # Vue applications
 ```
-
-These branches are refreshed manually on release-worthy changes and go away once the
-packages are on npm.
 
 ## Quick start (React)
 
@@ -57,6 +50,18 @@ const kit = createTransactionKit({ chain: testnetAsimov, provider: window.ethere
 
 The adapters never import the core at runtime — the kit instance is injected and typed
 structurally, so the packages version independently.
+
+## Core API
+
+| API | Purpose |
+| --- | --- |
+| `createTransactionKit({ chain, provider, account?, suggestions?, allowUnverified? })` | Creates a framework-agnostic kit around genlayer-js v2. Set `allowUnverified: true` only when you want adapters to allow signing despite a fee-policy hash mismatch. |
+| `kit.estimate(input, tx?) -> Promise<PolicyQuote>` | Builds a fee quote from live prices plus optional developer fee suggestions. `PolicyQuote.verification` is `{ status: 'verified' \| 'mismatch' \| 'unavailable', expectedHash?, actualHash? }`; React/Vue block approval on `mismatch` unless `allowUnverified` is enabled, and warn without blocking on `unavailable`. |
+| `kit.submit(quote, tx)` | Submits the direct deploy/write route through the injected wallet and returns `{ genlayerTxId, evmTxHash? }`. |
+| `kit.track(genlayerTxId, onUpdate, { until? })` | Polls transaction state through decided/finalized and reports queue position while pending. |
+| `kit.cancel({ hash })` | Wraps genlayer-js `cancelTransaction({ hash })` for pending Studio/localnet transactions. |
+| `kit.topUp({ account?, txId, distribution, value })` | Wraps genlayer-js `topUpFees(...)` to deposit additional fee budget for an existing transaction. |
+| `kit.verification(quote, tx)` | Returns the existing deterministic fee-config hash and summary used by panels and optional Snap verification. |
 
 ## Wallet compatibility (MetaMask, Privy, WalletConnect, …)
 

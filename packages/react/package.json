@@ -1,6 +1,6 @@
 {
   "name": "@genlayer/transaction-kit-react",
-  "version": "0.1.0",
+  "version": "0.1.0-rc.1",
   "description": "GenLayer fee approval & signing UI \u2014 React adapter for @genlayer/transaction-kit",
   "license": "MIT",
   "type": "module",
@@ -18,6 +18,10 @@
   "files": [
     "dist"
   ],
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
   "scripts": {
     "build": "tsup src/index.ts --format esm,cjs --dts --out-dir dist && cp src/styles.css dist/styles.css",
     "typecheck": "tsc --noEmit",
