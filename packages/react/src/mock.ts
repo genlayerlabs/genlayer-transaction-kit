@@ -10,6 +10,10 @@ import type {
 const PRESET_APPEALS: Record<string, bigint> = { low: 1n, standard: 3n, high: 5n };
 const GEN_PER_TIME_UNIT = 10n ** 15n;
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+const asBigInt = (
+  value: bigint | number | string | undefined,
+  fallback: bigint,
+): bigint => (value === undefined ? fallback : BigInt(value));
 
 /**
  * Deterministic mock kit for demos and component tests. Mirrors the shapes
@@ -36,18 +40,31 @@ export function createMockKit(opts?: {
 
     async estimate(input: PolicyInput): Promise<PolicyQuote> {
       await sleep(delays.estimate);
-      const appeals = BigInt(
-        (input.overrides?.appealRounds as bigint | undefined) ??
-          PRESET_APPEALS[input.preset ?? 'standard'] ??
-          3n,
+      const appeals = asBigInt(
+        input.overrides?.appealRounds,
+        PRESET_APPEALS[input.preset ?? 'standard'] ?? 3n,
       );
-      const rotations = Array.from({ length: Number(appeals) + 1 }, () => 0n);
+      const rotations = input.overrides?.rotations?.map((value) => BigInt(value)) ??
+        Array.from({ length: Number(appeals) + 1 }, () => 0n);
+      const leaderTimeunitsAllocation = asBigInt(
+        input.overrides?.leaderTimeunitsAllocation,
+        100n,
+      );
+      const validatorTimeunitsAllocation = asBigInt(
+        input.overrides?.validatorTimeunitsAllocation,
+        200n,
+      );
       const leaderRounds = BigInt(rotations.length) + appeals;
-      const timeUnits = (100n + 5n * 200n) * (appeals * 2n + 1n);
+      const timeUnits =
+        (leaderTimeunitsAllocation + 5n * validatorTimeunitsAllocation) *
+        (appeals * 2n + 1n);
       const timeUnitFees = timeUnits * GEN_PER_TIME_UNIT;
-      const budgetPerRound = input.overrides?.executionBudgetPerRound ?? 76_548_000_000_000n;
+      const budgetPerRound = asBigInt(
+        input.overrides?.executionBudgetPerRound,
+        76_548_000_000_000n,
+      );
       const executionBudget = budgetPerRound * leaderRounds;
-      const messageFees = input.overrides?.totalMessageFees ?? 0n;
+      const messageFees = asBigInt(input.overrides?.totalMessageFees, 0n);
       const userValue = input.userValue ?? 0n;
       const feeValue = timeUnitFees + executionBudget + messageFees;
       const verificationStatus = opts?.verificationStatus ?? 'verified';
@@ -58,8 +75,8 @@ export function createMockKit(opts?: {
           : expectedHash;
       return {
         distribution: {
-          leaderTimeunitsAllocation: 100n,
-          validatorTimeunitsAllocation: 200n,
+          leaderTimeunitsAllocation,
+          validatorTimeunitsAllocation,
           appealRounds: appeals,
           executionBudgetPerRound: budgetPerRound,
           executionConsumed: 0n,

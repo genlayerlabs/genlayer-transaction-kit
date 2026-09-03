@@ -23,6 +23,7 @@ const packageSet = (version = '0.1.0-rc.1', jsVersion = requiredGenlayerJsVersio
       name: `@genlayer/transaction-kit-${adapter}`,
       version,
       files: ['dist'],
+      peerDependencies: { '@genlayer/transaction-kit': version },
       publishConfig: { access: 'public', registry: 'https://registry.npmjs.org/' },
     },
   })),
@@ -77,5 +78,21 @@ test('requires the exact compatible genlayer-js release', () => {
   assert.throws(
     () => validatePackageSet(packageSet('0.1.0-rc.1', 'github:genlayerlabs/genlayer-js#v2-dev'), '0.1.0-rc.1'),
     /must pin genlayer-js@2\.0\.0-rc\.1/,
+  );
+});
+
+test('requires adapters to pin the matching core package as a peer', () => {
+  const missing = packageSet();
+  delete missing[1].manifest.peerDependencies;
+  assert.throws(
+    () => validatePackageSet(missing, '0.1.0-rc.1'),
+    /must pin @genlayer\/transaction-kit@0\.1\.0-rc\.1 as a peer dependency/,
+  );
+
+  const stale = packageSet();
+  stale[2].manifest.peerDependencies['@genlayer/transaction-kit'] = '0.1.0';
+  assert.throws(
+    () => validatePackageSet(stale, '0.1.0-rc.1'),
+    /must pin @genlayer\/transaction-kit@0\.1\.0-rc\.1 as a peer dependency/,
   );
 });

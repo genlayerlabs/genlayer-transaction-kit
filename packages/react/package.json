@@ -28,6 +28,7 @@
     "test": "vitest run"
   },
   "peerDependencies": {
+    "@genlayer/transaction-kit": "0.1.0-rc.1",
     "react": ">=18"
   },
   "devDependencies": {
