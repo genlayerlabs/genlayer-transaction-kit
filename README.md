@@ -100,7 +100,7 @@ import profile from './fee-profile.json';
 const kit = createTransactionKit({
   chain,
   provider: window.ethereum,
-  suggestions: profile, // { deploy?, methods: { place_bet: {...} } }
+  suggestions: profile, // { chainId, deploy?, methods: { place_bet: {...} } }
 });
 ```
 
@@ -108,4 +108,7 @@ Merge order per estimate: preset (appeal posture) < suggestion (measured allocat
 < caller overrides. `PolicyQuote.source` reports `'developer'` or `'network-default'`,
 and the receipt shows the provenance. Profile values are decimal strings, so the JSON
 artifact passes through unchanged; methods without an entry fall back to network
-defaults.
+defaults. A profile must declare the exact numeric `chainId` where it was measured.
+Missing, malformed, or mismatched chain provenance falls back to network defaults, as
+does a profile whose execution budget is below the live network floor. `network` is an
+optional human-readable label and is never used as the security boundary.
