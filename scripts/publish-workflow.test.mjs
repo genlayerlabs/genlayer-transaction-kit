@@ -3,6 +3,13 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 const workflow = readFileSync(new URL('../.github/workflows/publish.yml', import.meta.url), 'utf8');
+const releaseScript = readFileSync(new URL('./release.sh', import.meta.url), 'utf8');
+
+test('release helper requires CI but not a removed branch credential workflow', () => {
+  assert.match(releaseScript, /--workflow=ci\.yml/);
+  assert.doesNotMatch(releaseScript, /--workflow=publish\.yml|credentials_status/);
+  assert.match(releaseScript, /git push origin "refs\/tags\/\$tag"/);
+});
 
 test('publishing uses GitHub OIDC without a long-lived npm credential', () => {
   assert.match(workflow, /id-token: write/);

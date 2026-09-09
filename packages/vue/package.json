@@ -1,6 +1,6 @@
 {
   "name": "@genlayer/transaction-kit-vue",
-  "version": "0.1.0-rc.1",
+  "version": "0.1.0-rc.2",
   "description": "GenLayer fee approval & signing UI \u2014 Vue 3 adapter for @genlayer/transaction-kit",
   "license": "MIT",
   "type": "module",
@@ -28,7 +28,7 @@
     "test": "vitest run"
   },
   "peerDependencies": {
-    "@genlayer/transaction-kit": "0.1.0-rc.1",
+    "@genlayer/transaction-kit": "0.1.0-rc.2",
     "vue": ">=3.3"
   },
   "devDependencies": {
