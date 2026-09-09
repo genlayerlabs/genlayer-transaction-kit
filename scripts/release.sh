@@ -39,11 +39,8 @@ if [[ "$ci_status" != "success" ]]; then
   exit 1
 fi
 
-credentials_status="$(gh run list --workflow=publish.yml --branch "$branch" --commit "$local_sha" --limit 1 --json conclusion --jq '.[0].conclusion')"
-if [[ "$credentials_status" != "success" ]]; then
-  echo "The repository-owned npm credential check for $branch@$local_sha is '${credentials_status:-missing}', not successful." >&2
-  exit 1
-fi
+# Trusted publishing authenticates inside the tag workflow's npm publish step.
+# There is deliberately no branch-owned npm token/whoami workflow to wait for.
 
 required_js="$(node -e "import('./scripts/release-policy.mjs').then(m => console.log(m.requiredGenlayerJsVersion))")"
 published_js="$(npm view "genlayer-js@$required_js" version)"
