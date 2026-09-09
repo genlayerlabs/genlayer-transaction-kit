@@ -2,42 +2,21 @@ name: Publish packages to npm
 
 on:
   push:
-    branches:
-      - "v*"
-      - "v*-dev"
     tags:
       - "v*.*.*"
 
 permissions:
-  contents: write
-  id-token: write
+  contents: read
 
 jobs:
-  credentials:
-    name: Verify npm publishing credentials
-    if: startsWith(github.ref, 'refs/heads/')
-    runs-on: ubuntu-latest
-    environment: Publish
-    steps:
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "24"
-          registry-url: "https://registry.npmjs.org"
-      - name: Require and validate the repository-owned npm token
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: |
-          if [ -z "$NODE_AUTH_TOKEN" ]; then
-            echo "NPM_TOKEN is not available to the Publish environment." >&2
-            exit 1
-          fi
-          npm whoami
-
   publish:
     name: Publish coordinated package set
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     environment: Publish
+    permissions:
+      contents: write
+      id-token: write
     concurrency:
       group: npm-${{ github.ref }}
       cancel-in-progress: false
@@ -51,17 +30,21 @@ jobs:
         with:
           node-version: "24"
           registry-url: "https://registry.npmjs.org"
-          cache: npm
 
-      - name: Require repository-owned npm credentials
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      # Each npm package trusts this repository, publish.yml, and Publish environment.
+      # OIDC authentication occurs during npm publish, not npm whoami.
+      - name: Verify trusted publishing support
         run: |
-          if [ -z "$NODE_AUTH_TOKEN" ]; then
-            echo "NPM_TOKEN is not available to the Publish environment." >&2
-            exit 1
-          fi
-          npm whoami
+          node --input-type=module -e '
+            import { execFileSync } from "node:child_process";
+            const version = execFileSync("npm", ["--version"], { encoding: "utf8" }).trim();
+            const [major, minor, patch] = version.split(".").map(Number);
+            if (!(major > 11 || (major === 11 && (minor > 5 || (minor === 5 && patch >= 1))))) {
+              throw new Error("Trusted publishing requires npm >= 11.5.1; found " + version);
+            }
+          '
+          test -n "$ACTIONS_ID_TOKEN_REQUEST_URL"
+          test -n "$ACTIONS_ID_TOKEN_REQUEST_TOKEN"
 
       - name: Verify tag, package set, and owning branch
         run: |
@@ -100,8 +83,6 @@ jobs:
           done
 
       - name: Publish all packages
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           version="${GITHUB_REF_NAME#v}"
           dist_tag="$(node -e "import('./scripts/release-policy.mjs').then(m => console.log(m.parseReleaseVersion(process.argv[1]).distTag))" "$version")"
@@ -121,16 +102,17 @@ jobs:
             @genlayer/transaction-kit \
             @genlayer/transaction-kit-react \
             @genlayer/transaction-kit-vue; do
-            for attempt in 1 2 3 4 5 6; do
+            # npm publish-time scanning can delay public availability by minutes.
+            for attempt in $(seq 1 60); do
               published="$(npm view "$package_name@$version" version 2>/dev/null || true)"
               if [ "$published" = "$version" ]; then
                 break
               fi
-              if [ "$attempt" -eq 6 ]; then
+              if [ "$attempt" -eq 60 ]; then
                 echo "$package_name@$version was not visible after publication." >&2
                 exit 1
               fi
-              sleep 5
+              sleep 10
             done
           done
 
