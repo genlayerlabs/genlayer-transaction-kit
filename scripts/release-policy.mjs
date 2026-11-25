@@ -13,7 +13,11 @@ export const packageNames = [
   '@genlayer/transaction-kit-vue',
 ];
 
-export const requiredGenlayerJsVersion = '2.0.0-rc.1';
+// The kit drives the application's own genlayer-js client, so it is a peer:
+// a regular dependency would nest a second copy whenever the versions differ.
+// The dev pin is the oldest release in the range, which the kit is tested on.
+export const requiredGenlayerJsVersion = '2.1.0';
+export const genlayerJsPeerRange = `>=${requiredGenlayerJsVersion} <3`;
 
 export function parseReleaseVersion(version) {
   const match = /^(0)\.(1)\.(\d+)(?:-rc\.([1-9]\d*))?$/.exec(version);
@@ -70,9 +74,19 @@ export function validatePackageSet(packageSet, requestedVersion) {
   });
 
   const core = packageSet[0].manifest;
-  if (core.dependencies?.['genlayer-js'] !== requiredGenlayerJsVersion) {
+  if (core.dependencies?.['genlayer-js'] !== undefined) {
     throw new Error(
-      `@genlayer/transaction-kit must pin genlayer-js@${requiredGenlayerJsVersion}`,
+      '@genlayer/transaction-kit must not bundle genlayer-js as a dependency; declare it as a peer',
+    );
+  }
+  if (core.peerDependencies?.['genlayer-js'] !== genlayerJsPeerRange) {
+    throw new Error(
+      `@genlayer/transaction-kit must declare genlayer-js@"${genlayerJsPeerRange}" as a peer dependency`,
+    );
+  }
+  if (core.devDependencies?.['genlayer-js'] !== requiredGenlayerJsVersion) {
+    throw new Error(
+      `@genlayer/transaction-kit must test against genlayer-js@${requiredGenlayerJsVersion}`,
     );
   }
 
