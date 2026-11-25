@@ -21,11 +21,12 @@ ERC-7730 clear-signing metadata are stage 2 (see the wallet architecture doc in
 
 ## Installation
 
-The current release is available on the `rc` channel and is paired with
-`genlayer-js@2.1.0`, which targets Bradbury Phase 3:
+The current release is available on the `rc` channel. It takes `genlayer-js`
+as a peer dependency (`>=2.1.0 <3`; 2.1.0 targets Bradbury Phase 3) and drives
+the application's own copy:
 
 ```bash
-npm install @genlayer/transaction-kit@rc
+npm install genlayer-js @genlayer/transaction-kit@rc
 npm install @genlayer/transaction-kit-react@rc # React applications
 npm install @genlayer/transaction-kit-vue@rc   # Vue applications
 ```

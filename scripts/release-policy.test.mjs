@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  genlayerJsPeerRange,
   parseReleaseVersion,
   requiredGenlayerJsVersion,
   validatePackageSet,
@@ -13,7 +14,8 @@ const packageSet = (version = '0.1.0-rc.1', jsVersion = requiredGenlayerJsVersio
       name: '@genlayer/transaction-kit',
       version,
       files: ['dist/'],
-      dependencies: { 'genlayer-js': jsVersion },
+      peerDependencies: { 'genlayer-js': genlayerJsPeerRange },
+      devDependencies: { 'genlayer-js': jsVersion },
       publishConfig: { access: 'public', registry: 'https://registry.npmjs.org/' },
     },
   },
@@ -70,14 +72,27 @@ test('requires all packages to share the release version and public registry', (
   assert.throws(() => validatePackageSet(privatePackage, '0.1.0-rc.1'), /marked private/);
 });
 
-test('requires the exact compatible genlayer-js release', () => {
+test('takes genlayer-js as a peer and tests against the exact oldest release', () => {
+  assert.equal(genlayerJsPeerRange, '>=2.1.0 <3');
+
   assert.throws(
     () => validatePackageSet(packageSet('0.1.0-rc.1', '^2.0.0'), '0.1.0-rc.1'),
-    /must pin genlayer-js@2\.1\.0/,
+    /must test against genlayer-js@2\.1\.0/,
   );
   assert.throws(
     () => validatePackageSet(packageSet('0.1.0-rc.1', 'github:genlayerlabs/genlayer-js#v2-dev'), '0.1.0-rc.1'),
-    /must pin genlayer-js@2\.1\.0/,
+    /must test against genlayer-js@2\.1\.0/,
+  );
+
+  const bundled = packageSet();
+  bundled[0].manifest.dependencies = { 'genlayer-js': requiredGenlayerJsVersion };
+  assert.throws(() => validatePackageSet(bundled, '0.1.0-rc.1'), /must not bundle genlayer-js/);
+
+  const exactPeer = packageSet();
+  exactPeer[0].manifest.peerDependencies['genlayer-js'] = requiredGenlayerJsVersion;
+  assert.throws(
+    () => validatePackageSet(exactPeer, '0.1.0-rc.1'),
+    /must declare genlayer-js@">=2\.1\.0 <3" as a peer dependency/,
   );
 });
 
