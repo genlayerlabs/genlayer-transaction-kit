@@ -13,7 +13,7 @@ export const packageNames = [
   '@genlayer/transaction-kit-vue',
 ];
 
-export const requiredGenlayerJsVersion = '2.0.0-rc.1';
+export const requiredGenlayerJsVersion = '2.1.0';
 
 export function parseReleaseVersion(version) {
   const match = /^(0)\.(1)\.(\d+)(?:-rc\.([1-9]\d*))?$/.exec(version);

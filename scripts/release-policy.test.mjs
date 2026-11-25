@@ -73,11 +73,11 @@ test('requires all packages to share the release version and public registry', (
 test('requires the exact compatible genlayer-js release', () => {
   assert.throws(
     () => validatePackageSet(packageSet('0.1.0-rc.1', '^2.0.0'), '0.1.0-rc.1'),
-    /must pin genlayer-js@2\.0\.0-rc\.1/,
+    /must pin genlayer-js@2\.1\.0/,
   );
   assert.throws(
     () => validatePackageSet(packageSet('0.1.0-rc.1', 'github:genlayerlabs/genlayer-js#v2-dev'), '0.1.0-rc.1'),
-    /must pin genlayer-js@2\.0\.0-rc\.1/,
+    /must pin genlayer-js@2\.1\.0/,
   );
 });
 

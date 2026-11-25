@@ -1,6 +1,6 @@
 {
   "name": "@genlayer/transaction-kit",
-  "version": "0.1.0-rc.2",
+  "version": "0.1.0-rc.3",
   "description": "Framework-agnostic GenLayer transaction policy, submission, tracking, and verification helpers.",
   "license": "MIT",
   "type": "module",
@@ -25,7 +25,7 @@
   },
   "dependencies": {
     "ethers": "^6.17.0",
-    "genlayer-js": "2.0.0-rc.1"
+    "genlayer-js": "2.1.0"
   },
   "devDependencies": {
     "rimraf": "^3.0.2",

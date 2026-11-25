@@ -21,8 +21,8 @@ ERC-7730 clear-signing metadata are stage 2 (see the wallet architecture doc in
 
 ## Installation
 
-The first public release is available on the `rc` channel and is paired with
-`genlayer-js@2.0.0-rc.1`:
+The current release is available on the `rc` channel and is paired with
+`genlayer-js@2.1.0`, which targets Bradbury Phase 3:
 
 ```bash
 npm install @genlayer/transaction-kit@rc
